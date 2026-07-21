@@ -22,6 +22,7 @@ import net.runelite.api.MenuEntry;
 import net.runelite.api.NPC;
 import net.runelite.api.WorldView;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuEntryAdded;
@@ -172,6 +173,20 @@ public class ChunkTcgPlugin extends Plugin
 				clientThread.invoke(() -> message("Reset not performed — type exactly: reset"));
 			}
 		}
+		refreshPanel();
+	}
+
+	/** Testing helper: ::chunktoken grants a free zone token. */
+	@Subscribe
+	public void onCommandExecuted(CommandExecuted event)
+	{
+		if (!"chunktoken".equalsIgnoreCase(event.getCommand()) || !state.isLoaded())
+		{
+			return;
+		}
+		state.addZoneTokens(1);
+		message("TEST token granted — you now have " + state.getZoneTokens()
+			+ ". Spend it in the Zones tab.");
 		refreshPanel();
 	}
 

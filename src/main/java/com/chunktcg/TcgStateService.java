@@ -423,6 +423,13 @@ public class TcgStateService
 		save();
 	}
 
+	/** Grant tokens directly (used by the ::chunktoken test command). */
+	public void addZoneTokens(int n)
+	{
+		zoneTokens += n;
+		save();
+	}
+
 	// ---- points & tokens ----
 
 	public int pointsFor(RarityTier tier)
