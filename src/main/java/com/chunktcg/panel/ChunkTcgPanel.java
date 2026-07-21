@@ -10,10 +10,14 @@ import com.chunktcg.ZoneGrid;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -55,6 +59,9 @@ public class ChunkTcgPanel extends PluginPanel
 	private final JPanel collectionContent = new JPanel();
 	private final JPanel zonesContent = new JPanel();
 	private final JPanel display = new JPanel();
+
+	/** Per-zone expand/collapse toggles; absent = default (current zone open). */
+	private final Map<Integer, Boolean> zoneExpanded = new HashMap<>();
 
 	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, ChunkTcgConfig config,
 		ItemManager itemManager, ZoneGrid zones, Supplier<WorldPoint> playerPos,
@@ -171,86 +178,142 @@ public class ChunkTcgPanel extends PluginPanel
 
 		// Current-zone summary at the top
 		WorldPoint pos = playerPos.get();
+		int currentZone = pos != null ? zones.fromWorld(pos) : -1;
 		if (pos != null)
 		{
-			int zoneId = zones.fromWorld(pos);
-			Set<String> zoneMobs = state.getDiscovered().get(zoneId);
+			Set<String> zoneMobs = state.getDiscovered().get(currentZone);
 			int sighted = zoneMobs == null ? 0 : zoneMobs.size();
-			if (state.isUnlocked(zoneId))
+			if (state.isUnlocked(currentZone))
 			{
-				collectionContent.add(header("Currently in: " + zones.describe(zoneId)));
+				collectionContent.add(header("Currently in: " + zones.describe(currentZone)));
 				collectionContent.add(infoLabel(sighted + " different mob" + (sighted == 1 ? "" : "s")
 					+ " sighted in this zone"));
 			}
 			else
 			{
-				JLabel locked = header("Currently in: " + zones.describe(zoneId) + " [LOCKED]");
+				JLabel locked = header("Currently in: " + zones.describe(currentZone) + " [LOCKED]");
 				locked.setForeground(new Color(255, 120, 120));
 				collectionContent.add(locked);
 			}
 			collectionContent.add(Box.createVerticalStrut(8));
 		}
 
-		Set<String> npcs = new TreeSet<>(state.allDiscoveredNpcs());
-		if (npcs.isEmpty())
+		if (state.getDiscovered().isEmpty())
 		{
 			collectionContent.add(infoLabel("Walk around your zone — sighted mobs' drop tables become your collection log."));
 			return;
 		}
 
-		for (String npc : npcs)
+		// One collapsible section per zone; the current zone is open by default
+		List<Integer> zoneIds = new ArrayList<>(state.getDiscovered().keySet());
+		zoneIds.sort(Comparator.naturalOrder());
+		if (zoneIds.remove(Integer.valueOf(currentZone)))
 		{
-			List<Drop> cached = drops.get(npc);
-			if (cached != null && cached.isEmpty())
+			zoneIds.add(0, currentZone);
+		}
+
+		for (final int zoneId : zoneIds)
+		{
+			Set<String> zoneMobs = state.getDiscovered().get(zoneId);
+			if (zoneMobs == null || zoneMobs.isEmpty())
 			{
-				// Known to drop nothing — nothing to collect, no log entry
 				continue;
 			}
-			List<Drop> table = cached == null ? null : new ArrayList<>(cached);
+			final boolean expanded = zoneExpanded.getOrDefault(zoneId, zoneId == currentZone);
+			int[] pts = state.zonePoints(zoneId);
 
-			JPanel section = new JPanel();
-			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
-			section.setAlignmentX(Component.LEFT_ALIGNMENT);
-			section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+			JPanel zoneHeader = new JPanel(new BorderLayout(4, 0));
+			zoneHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+			zoneHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+			zoneHeader.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+			zoneHeader.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			zoneHeader.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
-			if (table == null)
+			JLabel arrow = new JLabel(expanded ? "▼" : "▶");
+			arrow.setForeground(new Color(255, 200, 0));
+			zoneHeader.add(arrow, BorderLayout.WEST);
+
+			JLabel zoneTitle = new JLabel(zones.describe(zoneId)
+				+ "  " + pts[0] + "/" + pts[1] + " pts");
+			zoneTitle.setForeground(Color.WHITE);
+			zoneTitle.setFont(zoneTitle.getFont().deriveFont(Font.BOLD));
+			zoneHeader.add(zoneTitle, BorderLayout.CENTER);
+
+			zoneHeader.addMouseListener(new MouseAdapter()
 			{
-				section.add(header(npc + " — fetching drop table..."));
-				collectionContent.add(section);
-				collectionContent.add(Box.createVerticalStrut(6));
-				continue;
-			}
-
-			table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
-			int owned = state.ownedOf(npc, table);
-			int earnedPts = 0;
-			int totalPts = 0;
-			for (Drop d : table)
-			{
-				int pts = state.pointsFor(d.tier());
-				totalPts += pts;
-				if (state.isCollected(npc, d.getItemName()))
+				@Override
+				public void mousePressed(MouseEvent e)
 				{
-					earnedPts += pts;
+					zoneExpanded.put(zoneId, !expanded);
+					refresh();
+				}
+			});
+			collectionContent.add(zoneHeader);
+			collectionContent.add(Box.createVerticalStrut(3));
+
+			if (expanded)
+			{
+				for (String npc : new TreeSet<>(zoneMobs))
+				{
+					addMobSection(npc);
 				}
 			}
-			int kc = state.killCount(npc);
-			section.add(header(npc + " (" + kc + " kc)  " + owned + "/" + table.size()
-				+ "  ·  " + earnedPts + "/" + totalPts + " pts"));
-
-			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
-			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
-			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
-			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			for (Drop d : table)
-			{
-				grid.add(itemCell(d, state.getCollectedEntry(npc, d.getItemName())));
-			}
-			section.add(grid);
-			collectionContent.add(section);
 			collectionContent.add(Box.createVerticalStrut(6));
 		}
+	}
+
+	private void addMobSection(String npc)
+	{
+		List<Drop> cached = drops.get(npc);
+		if (cached != null && cached.isEmpty())
+		{
+			// Known to drop nothing — nothing to collect, no log entry
+			return;
+		}
+		List<Drop> table = cached == null ? null : new ArrayList<>(cached);
+
+		JPanel section = new JPanel();
+		section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
+		section.setAlignmentX(Component.LEFT_ALIGNMENT);
+		section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+
+		if (table == null)
+		{
+			section.add(header(npc + " — fetching drop table..."));
+			collectionContent.add(section);
+			collectionContent.add(Box.createVerticalStrut(6));
+			return;
+		}
+
+		table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
+		int owned = state.ownedOf(npc, table);
+		int earnedPts = 0;
+		int totalPts = 0;
+		for (Drop d : table)
+		{
+			int pts = state.pointsFor(d.tier());
+			totalPts += pts;
+			if (state.isCollected(npc, d.getItemName()))
+			{
+				earnedPts += pts;
+			}
+		}
+		int kc = state.killCount(npc);
+		section.add(header(npc + " (" + kc + " kc)  " + owned + "/" + table.size()
+			+ "  ·  " + earnedPts + "/" + totalPts + " pts"));
+
+		JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
+		grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+		grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
+		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		for (Drop d : table)
+		{
+			grid.add(itemCell(d, state.getCollectedEntry(npc, d.getItemName())));
+		}
+		section.add(grid);
+		collectionContent.add(section);
+		collectionContent.add(Box.createVerticalStrut(6));
 	}
 
 	private JPanel itemCell(Drop drop, CardEntry owned)
