@@ -271,9 +271,10 @@ public class ChunkTcgPanel extends PluginPanel
 		}
 
 		zonesContent.add(header("Zone tokens: " + state.getZoneTokens()));
-		zonesContent.add(infoLabel("Reach " + config.thresholdPercent()
-			+ "% of a zone's points for a token. 100% the zone for a bonus token. "
-			+ "Spend tokens on any frontier zone below."));
+		zonesContent.add(infoLabel("Reach " + state.effectiveThresholdPercent()
+			+ "% of a zone's points for a token"
+			+ (state.isThresholdLocked() ? " (locked for this run)" : " (locks at your first drop)")
+			+ ". 100% the zone for a bonus token. Spend tokens on any frontier zone below."));
 		if (state.getViolations() > 0)
 		{
 			JLabel v = infoLabel("Violations: " + state.getViolations());

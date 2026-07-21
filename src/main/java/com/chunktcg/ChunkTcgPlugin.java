@@ -152,14 +152,24 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		if ("resetRun".equals(event.getKey()) && config.resetRun())
+		if ("resetConfirm".equals(event.getKey()))
 		{
-			configManager.setConfiguration(ChunkTcgConfig.GROUP, "resetRun", false);
-			if (state.isLoaded())
+			String typed = config.resetConfirm();
+			if (typed != null && typed.trim().equalsIgnoreCase("reset"))
 			{
-				state.resetRun();
-				seedAndPrefetch();
-				clientThread.invoke(() -> message("Run reset! Zones, collection and tokens wiped."));
+				configManager.setConfiguration(ChunkTcgConfig.GROUP, "resetConfirm", "");
+				if (state.isLoaded())
+				{
+					state.resetRun();
+					seedAndPrefetch();
+					clientThread.invoke(() -> message(
+						"Run reset! Zones, collection, tokens and locked threshold wiped."));
+				}
+			}
+			else if (typed != null && !typed.trim().isEmpty())
+			{
+				configManager.setConfiguration(ChunkTcgConfig.GROUP, "resetConfirm", "");
+				clientThread.invoke(() -> message("Reset not performed — type exactly: reset"));
 			}
 		}
 		refreshPanel();

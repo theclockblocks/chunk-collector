@@ -60,7 +60,7 @@ public interface ChunkTcgConfig extends Config
 	@ConfigItem(
 		keyName = "thresholdPercent",
 		name = "Zone threshold",
-		description = "Percentage of a zone's total collection points needed to earn its zone token (spend tokens to unlock a frontier zone of your choice)",
+		description = "Percentage of a zone's total collection points needed to earn its zone token. Set this BEFORE your first drop — it locks in for the whole run once the first item is logged.",
 		section = progression,
 		position = 2
 	)
@@ -96,15 +96,15 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "resetRun",
-		name = "Reset run",
-		description = "DANGER: turning this on wipes this character's entire run — zones, collection, tokens — and starts fresh. The toggle switches itself back off.",
+		keyName = "resetConfirm",
+		name = "Reset run (type: reset)",
+		description = "DANGER: type the word reset into this field to wipe this character's entire run — zones, collection, tokens, locked threshold. The field clears itself afterwards.",
 		section = progression,
 		position = 5
 	)
-	default boolean resetRun()
+	default String resetConfirm()
 	{
-		return false;
+		return "";
 	}
 
 	@ConfigItem(

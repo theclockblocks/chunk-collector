@@ -31,6 +31,7 @@ public class TcgStateService
 	private static final String KEY_TOKENS = "zoneTokens";
 	private static final String KEY_CLAIMS = "zoneClaims";
 	private static final String KEY_ZONE_MODE = "zoneMode";
+	private static final String KEY_LOCKED_THRESHOLD = "lockedThreshold";
 
 	/** Claim bitmask per zone. */
 	public static final int CLAIM_THRESHOLD = 1;
@@ -72,6 +73,10 @@ public class TcgStateService
 
 	@Getter
 	private int violations;
+
+	/** Threshold % frozen at the first logged drop; 0 = not locked yet. */
+	@Getter
+	private int lockedThreshold;
 
 	@Getter
 	private boolean loaded;
@@ -159,6 +164,7 @@ public class TcgStateService
 
 		zoneTokens = getIntKey(KEY_TOKENS);
 		violations = getIntKey(KEY_VIOLATIONS);
+		lockedThreshold = getIntKey(KEY_LOCKED_THRESHOLD);
 		loaded = true;
 		log.debug("Loaded state: {} zones, {} items collected, {} tokens",
 			unlockedChunks.size(), collected.size(), zoneTokens);
@@ -194,7 +200,22 @@ public class TcgStateService
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CLAIMS, gson.toJson(zoneClaims));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_TOKENS, zoneTokens);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_THRESHOLD, lockedThreshold);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_ZONE_MODE, config.zoneSize().name());
+	}
+
+	/**
+	 * The threshold in force for this run: the config value until the first
+	 * drop is logged, frozen from then on until a reset.
+	 */
+	public int effectiveThresholdPercent()
+	{
+		return lockedThreshold > 0 ? lockedThreshold : config.thresholdPercent();
+	}
+
+	public boolean isThresholdLocked()
+	{
+		return lockedThreshold > 0;
 	}
 
 	/** Wipe this character's entire run and start fresh. */
@@ -206,6 +227,7 @@ public class TcgStateService
 		zoneClaims.clear();
 		zoneTokens = 0;
 		violations = 0;
+		lockedThreshold = 0;
 		unlockedChunks.addAll(parseStartingAreas());
 		save();
 		log.debug("Run reset");
@@ -313,6 +335,11 @@ public class TcgStateService
 	/** Record a collected drop. Returns true if it's a brand new collection entry. */
 	public boolean collectItem(String itemName, int itemId)
 	{
+		// The first logged drop freezes the run's threshold — no goalpost-moving
+		if (lockedThreshold == 0)
+		{
+			lockedThreshold = config.thresholdPercent();
+		}
 		String key = WikiDropsService.normalize(itemName);
 		CardEntry entry = collected.get(key);
 		boolean isNew = entry == null;
@@ -408,7 +435,7 @@ public class TcgStateService
 		}
 		int claims = claimsOf(chunkId);
 		int newClaims = 0;
-		if ((claims & CLAIM_THRESHOLD) == 0 && pts[0] * 100 >= pts[1] * config.thresholdPercent())
+		if ((claims & CLAIM_THRESHOLD) == 0 && pts[0] * 100 >= pts[1] * effectiveThresholdPercent())
 		{
 			newClaims |= CLAIM_THRESHOLD;
 		}
