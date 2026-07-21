@@ -16,7 +16,6 @@ import java.awt.GridLayout;
 import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -224,29 +223,29 @@ public class ChunkTcgPanel extends PluginPanel
 			}
 
 			table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
-			int owned = state.ownedOf(table);
+			int owned = state.ownedOf(npc, table);
 			int earnedPts = 0;
 			int totalPts = 0;
 			for (Drop d : table)
 			{
 				int pts = state.pointsFor(d.tier());
 				totalPts += pts;
-				if (state.isCollected(d.getItemName()))
+				if (state.isCollected(npc, d.getItemName()))
 				{
 					earnedPts += pts;
 				}
 			}
-			section.add(header(npc + "  " + owned + "/" + table.size()
+			int kc = state.killCount(npc);
+			section.add(header(npc + " (" + kc + " kc)  " + owned + "/" + table.size()
 				+ "  ·  " + earnedPts + "/" + totalPts + " pts"));
 
 			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
 			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
 			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			Map<String, CardEntry> collectedCopy = new HashMap<>(state.getCollected());
 			for (Drop d : table)
 			{
-				grid.add(itemCell(d, collectedCopy.get(WikiDropsService.normalize(d.getItemName()))));
+				grid.add(itemCell(d, state.getCollectedEntry(npc, d.getItemName())));
 			}
 			section.add(grid);
 			collectionContent.add(section);
@@ -278,10 +277,24 @@ public class ChunkTcgPanel extends PluginPanel
 		}
 		cell.add(icon, BorderLayout.CENTER);
 
-		cell.setToolTipText("<html>" + drop.getItemName() + "<br>" + tier.getLabel()
-			+ " · " + state.pointsFor(tier) + " pts"
+		cell.setToolTipText("<html>" + drop.getItemName()
+			+ "<br>Drop rate: " + formatRate(drop.getRate())
+			+ "<br>" + tier.getLabel() + " · " + state.pointsFor(tier) + " pts"
 			+ (owned != null ? "<br>Collected x" + owned.getCount() : "<br>Not collected") + "</html>");
 		return cell;
+	}
+
+	private static String formatRate(double rate)
+	{
+		if (rate >= 1.0)
+		{
+			return "Always";
+		}
+		if (rate <= 0)
+		{
+			return "Unknown";
+		}
+		return "~1/" + Math.round(1.0 / rate);
 	}
 
 	// ---- Zones ----

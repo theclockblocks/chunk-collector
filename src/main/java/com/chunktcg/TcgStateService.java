@@ -32,6 +32,7 @@ public class TcgStateService
 	private static final String KEY_CLAIMS = "zoneClaims";
 	private static final String KEY_ZONE_MODE = "zoneMode";
 	private static final String KEY_LOCKED_THRESHOLD = "lockedThreshold";
+	private static final String KEY_KILLS = "killCounts";
 
 	/** Claim bitmask per zone. */
 	public static final int CLAIM_THRESHOLD = 1;
@@ -60,9 +61,16 @@ public class TcgStateService
 	@Getter
 	private final Map<Integer, Set<String>> discovered = new ConcurrentHashMap<>();
 
-	/** lower item name -> collected item entry. */
+	/**
+	 * Collection is PER MOB: keyed "mobname|itemname" (both lower-cased).
+	 * Bones from a goblin do not tick the cow's bones slot.
+	 */
 	@Getter
 	private final Map<String, CardEntry> collected = new ConcurrentHashMap<>();
+
+	/** lower mob name -> counted kills (in unlocked zones only). */
+	@Getter
+	private final Map<String, Integer> killCounts = new ConcurrentHashMap<>();
 
 	/** zoneId -> claim bitmask (threshold reached / 100% completed). */
 	@Getter
@@ -145,7 +153,27 @@ public class TcgStateService
 			Map<String, CardEntry> saved = gson.fromJson(collectedJson, t);
 			if (saved != null)
 			{
-				collected.putAll(saved);
+				// Only per-mob keys ("mob|item") are valid; drop legacy global entries
+				for (Map.Entry<String, CardEntry> e : saved.entrySet())
+				{
+					if (e.getKey().contains("|"))
+					{
+						collected.put(e.getKey(), e.getValue());
+					}
+				}
+			}
+		}
+
+		String killsJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_KILLS);
+		if (killsJson != null && !killsJson.isEmpty())
+		{
+			Type t = new TypeToken<Map<String, Integer>>()
+			{
+			}.getType();
+			Map<String, Integer> saved = gson.fromJson(killsJson, t);
+			if (saved != null)
+			{
+				killCounts.putAll(saved);
 			}
 		}
 
@@ -198,6 +226,7 @@ public class TcgStateService
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_DISCOVERED, gson.toJson(discovered));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_COLLECTED, gson.toJson(collected));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CLAIMS, gson.toJson(zoneClaims));
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_KILLS, gson.toJson(killCounts));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_TOKENS, zoneTokens);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_THRESHOLD, lockedThreshold);
@@ -225,6 +254,7 @@ public class TcgStateService
 		discovered.clear();
 		collected.clear();
 		zoneClaims.clear();
+		killCounts.clear();
 		zoneTokens = 0;
 		violations = 0;
 		lockedThreshold = 0;
@@ -332,15 +362,20 @@ public class TcgStateService
 		return added;
 	}
 
-	/** Record a collected drop. Returns true if it's a brand new collection entry. */
-	public boolean collectItem(String itemName, int itemId)
+	private static String collectionKey(String mobName, String itemName)
+	{
+		return WikiDropsService.normalize(mobName) + "|" + WikiDropsService.normalize(itemName);
+	}
+
+	/** Record a drop collected FROM this mob. Returns true if it's a new entry for that mob. */
+	public boolean collectItem(String mobName, String itemName, int itemId)
 	{
 		// The first logged drop freezes the run's threshold — no goalpost-moving
 		if (lockedThreshold == 0)
 		{
 			lockedThreshold = config.thresholdPercent();
 		}
-		String key = WikiDropsService.normalize(itemName);
+		String key = collectionKey(mobName, itemName);
 		CardEntry entry = collected.get(key);
 		boolean isNew = entry == null;
 		if (isNew)
@@ -359,9 +394,27 @@ public class TcgStateService
 		return isNew;
 	}
 
-	public boolean isCollected(String itemName)
+	public boolean isCollected(String mobName, String itemName)
 	{
-		return collected.containsKey(WikiDropsService.normalize(itemName));
+		return collected.containsKey(collectionKey(mobName, itemName));
+	}
+
+	public CardEntry getCollectedEntry(String mobName, String itemName)
+	{
+		return collected.get(collectionKey(mobName, itemName));
+	}
+
+	/** Count a kill toward the mob's kc (only called for unlocked-zone kills). */
+	public void addKill(String mobName)
+	{
+		killCounts.merge(WikiDropsService.normalize(mobName), 1, Integer::sum);
+		save();
+	}
+
+	public int killCount(String mobName)
+	{
+		Integer kc = killCounts.get(WikiDropsService.normalize(mobName));
+		return kc == null ? 0 : kc;
 	}
 
 	public void addViolation()
@@ -391,8 +444,8 @@ public class TcgStateService
 	}
 
 	/**
-	 * [earnedPoints, totalPoints] for a zone: the union of drop tables of NPCs
-	 * discovered in that zone, valued by rarity, scored by what you've collected.
+	 * [earnedPoints, totalPoints] for a zone: each discovered mob's drop table
+	 * is its own checklist — the same item on two mobs' tables counts twice.
 	 */
 	public int[] zonePoints(int chunkId)
 	{
@@ -401,16 +454,23 @@ public class TcgStateService
 		{
 			return new int[]{0, 0};
 		}
-		Map<String, Drop> union = drops.unionDrops(npcs);
 		int earned = 0;
 		int total = 0;
-		for (Map.Entry<String, Drop> e : union.entrySet())
+		for (String mob : npcs)
 		{
-			int pts = pointsFor(e.getValue().tier());
-			total += pts;
-			if (collected.containsKey(e.getKey()))
+			List<Drop> table = drops.get(mob);
+			if (table == null)
 			{
-				earned += pts;
+				continue;
+			}
+			for (Drop d : table)
+			{
+				int pts = pointsFor(d.tier());
+				total += pts;
+				if (isCollected(mob, d.getItemName()))
+				{
+					earned += pts;
+				}
 			}
 		}
 		return new int[]{earned, total};
@@ -452,13 +512,13 @@ public class TcgStateService
 		return newClaims;
 	}
 
-	/** Owned collection entries among a drop list, for per-NPC log progress. */
-	public int ownedOf(List<Drop> dropList)
+	/** Owned collection entries among a mob's drop list. */
+	public int ownedOf(String mobName, List<Drop> dropList)
 	{
 		int owned = 0;
 		for (Drop d : dropList)
 		{
-			if (collected.containsKey(WikiDropsService.normalize(d.getItemName())))
+			if (isCollected(mobName, d.getItemName()))
 			{
 				owned++;
 			}

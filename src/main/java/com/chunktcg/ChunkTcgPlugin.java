@@ -312,6 +312,7 @@ public class ChunkTcgPlugin extends Plugin
 		}
 
 		state.discoverNpc(chunk, name);
+		state.addKill(name);
 		drops.ensureFetched(name, this::refreshPanel);
 
 		for (ItemStack stack : event.getItems())
@@ -323,11 +324,13 @@ public class ChunkTcgPlugin extends Plugin
 			{
 				continue;
 			}
-			if (state.collectItem(itemName, canonicalId))
+			if (state.collectItem(name, itemName, canonicalId))
 			{
-				RarityTier tier = drops.tierFor(itemName, state.allDiscoveredNpcs());
+				// Rarity from THIS mob's table — the same item can differ per mob
+				RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(name));
 				int pts = state.pointsFor(tier);
-				message("Collected: " + itemName + " [" + tier.getLabel() + ", +" + pts + " pts]");
+				message("Collected from " + name + ": " + itemName
+					+ " [" + tier.getLabel() + ", +" + pts + " pts]");
 				toastOverlay.push("Collected! +" + pts + " pts", itemName, canonicalId, tier);
 			}
 		}
