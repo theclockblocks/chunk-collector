@@ -27,6 +27,8 @@ import net.runelite.api.WorldView;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Skill;
+import net.runelite.api.Actor;
+import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
@@ -486,6 +488,46 @@ public class ChunkTcgPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Kill counts come from deaths, not loot — mobs that drop nothing (Giant
+	 * spiders...) still count. A kill is yours if you and the mob were
+	 * fighting each other when it died.
+	 */
+	@Subscribe
+	public void onActorDeath(ActorDeath event)
+	{
+		if (!state.isLoaded() || !(event.getActor() instanceof NPC))
+		{
+			return;
+		}
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null || wv.isInstance() || client.getLocalPlayer() == null)
+		{
+			return;
+		}
+		NPC npc = (NPC) event.getActor();
+		String name = npc.getName();
+		WorldPoint loc = npc.getWorldLocation();
+		if (name == null || name.isEmpty() || loc == null)
+		{
+			return;
+		}
+		Actor npcTarget = npc.getInteracting();
+		Actor playerTarget = client.getLocalPlayer().getInteracting();
+		if (npcTarget != client.getLocalPlayer() && playerTarget != npc)
+		{
+			return;
+		}
+		int chunk = zones.fromWorld(loc);
+		if (!state.isUnlocked(chunk))
+		{
+			return;
+		}
+		state.discoverNpc(chunk, name);
+		state.addKill(chunk, name);
+		refreshPanel();
+	}
+
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
 	{
@@ -522,7 +564,6 @@ public class ChunkTcgPlugin extends Plugin
 		}
 
 		state.discoverNpc(chunk, name);
-		state.addKill(chunk, name);
 		drops.ensureFetched(name, () ->
 		{
 			processPendingLoot();
