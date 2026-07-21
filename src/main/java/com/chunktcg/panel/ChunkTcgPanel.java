@@ -103,6 +103,8 @@ public class ChunkTcgPanel extends PluginPanel
 		JScrollPane scroll = new JScrollPane(holder);
 		scroll.setBorder(null);
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		// The sidebar is ~225px wide — never grow sideways, wrap instead
+		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		return scroll;
 	}
 
@@ -165,7 +167,7 @@ public class ChunkTcgPanel extends PluginPanel
 			section.add(header(npc + "  " + owned + "/" + table.size()));
 
 			// Only cards actually pulled from packs are revealed — the rest stay a mystery
-			JPanel grid = new JPanel(new GridLayout(0, 5, 2, 2));
+			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			boolean any = false;
 			for (Drop d : table)
@@ -208,7 +210,7 @@ public class ChunkTcgPanel extends PluginPanel
 			section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 			section.add(header("Other cards"));
-			JPanel grid = new JPanel(new GridLayout(0, 5, 2, 2));
+			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			other.sort(Comparator.comparing(CardEntry::getName));
 			for (CardEntry e : other)
@@ -360,18 +362,21 @@ public class ChunkTcgPanel extends PluginPanel
 				label = new JLabel("★ " + pull.getItemName());
 				label.setForeground(new Color(255, 215, 0));
 				label.setFont(label.getFont().deriveFont(Font.BOLD));
+				label.setToolTipText(pull.getItemName());
 			}
 			else
 			{
-				label = new JLabel((pull.isNew() ? "NEW  " : "dupe  ") + pull.getItemName()
-					+ "  [" + pull.getTier().getLabel() + "]");
+				label = new JLabel((pull.isNew() ? "NEW " : "") + pull.getItemName());
 				label.setForeground(pull.getTier().getColor());
 				if (pull.isNew())
 				{
 					label.setFont(label.getFont().deriveFont(Font.BOLD));
 				}
+				label.setToolTipText(pull.getItemName() + " [" + pull.getTier().getLabel() + "]"
+					+ (pull.isNew() ? " — NEW" : " — duplicate"));
 			}
 			row.add(label, BorderLayout.CENTER);
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
 			packsContent.add(row);
 			packsContent.add(Box.createVerticalStrut(2));
 		}
@@ -460,7 +465,7 @@ public class ChunkTcgPanel extends PluginPanel
 
 	private JLabel header(String text)
 	{
-		JLabel l = new JLabel(text);
+		JLabel l = new JLabel("<html><body style='width:160px'>" + text + "</body></html>");
 		l.setForeground(Color.WHITE);
 		l.setFont(l.getFont().deriveFont(Font.BOLD));
 		l.setBorder(BorderFactory.createEmptyBorder(2, 0, 4, 0));
@@ -469,7 +474,8 @@ public class ChunkTcgPanel extends PluginPanel
 
 	private JLabel infoLabel(String text)
 	{
-		JLabel l = new JLabel("<html>" + text + "</html>");
+		// Fixed html body width forces wrapping instead of stretching the sidebar
+		JLabel l = new JLabel("<html><body style='width:160px'>" + text + "</body></html>");
 		l.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		return l;
 	}
