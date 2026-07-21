@@ -1,5 +1,6 @@
 package com.chunktcg;
 
+import com.chunktcg.overlay.CardToastOverlay;
 import com.chunktcg.overlay.ChunkSceneOverlay;
 import com.chunktcg.overlay.ChunkWorldMapOverlay;
 import com.chunktcg.overlay.ItemLockOverlay;
@@ -19,6 +20,7 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import java.util.EnumMap;
 import java.util.Map;
+import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.NPC;
 import net.runelite.api.Skill;
@@ -28,6 +30,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOpened;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -89,6 +92,9 @@ public class ChunkTcgPlugin extends Plugin
 	private ItemLockOverlay itemLockOverlay;
 
 	@Inject
+	private CardToastOverlay cardToastOverlay;
+
+	@Inject
 	private ClientToolbar clientToolbar;
 
 	private ChunkTcgPanel panel;
@@ -105,9 +111,10 @@ public class ChunkTcgPlugin extends Plugin
 		overlayManager.add(sceneOverlay);
 		overlayManager.add(worldMapOverlay);
 		overlayManager.add(itemLockOverlay);
+		overlayManager.add(cardToastOverlay);
 
 		panel = new ChunkTcgPanel(state, drops, packs, config, itemManager, zones,
-			() -> lastPlayerPos, this::openStarterPack);
+			() -> lastPlayerPos, this::openStarterPackFromPanel, this::openPackFromPanel);
 		navButton = NavigationButton.builder()
 			.tooltip("Chunk TCG")
 			.icon(buildIcon())
@@ -131,6 +138,7 @@ public class ChunkTcgPlugin extends Plugin
 		overlayManager.remove(sceneOverlay);
 		overlayManager.remove(worldMapOverlay);
 		overlayManager.remove(itemLockOverlay);
+		overlayManager.remove(cardToastOverlay);
 		clientToolbar.removeNavigation(navButton);
 		state.unload();
 		panel = null;
@@ -299,6 +307,98 @@ public class ChunkTcgPlugin extends Plugin
 		refreshPanel();
 	}
 
+	/**
+	 * Hold-your-ground style enforcement: clicks targeting NPCs, objects or
+	 * ground items inside locked zones are cancelled outright. Walking through
+	 * locked zones stays allowed. Also blocks buying locked items in shops.
+	 */
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		if (!state.isLoaded())
+		{
+			return;
+		}
+		WorldView wv = client.getTopLevelWorldView();
+		boolean inInstance = wv != null && wv.isInstance();
+
+		if (config.blockZoneInteractions() && !inInstance && wv != null)
+		{
+			WorldPoint target = null;
+			MenuAction action = event.getMenuAction();
+			NPC npc = event.getMenuEntry().getNpc();
+			if (npc != null && isNpcAction(action))
+			{
+				target = npc.getWorldLocation();
+			}
+			else if (isSceneAction(action))
+			{
+				target = WorldPoint.fromScene(wv, event.getParam0(), event.getParam1(), wv.getPlane());
+			}
+			if (target != null && !state.isUnlocked(zones.fromWorld(target)))
+			{
+				event.consume();
+				message("Blocked — that's in locked zone " + zones.describe(zones.fromWorld(target))
+					+ ". Pull its zone card first!");
+				return;
+			}
+		}
+
+		if (config.blockShopBuying())
+		{
+			String option = event.getMenuOption();
+			int itemId = event.getMenuEntry().getItemId();
+			if (itemId > 0 && option != null && option.startsWith("Buy"))
+			{
+				String itemName = itemManager.getItemComposition(itemId).getName();
+				if (!state.isItemUnlocked(itemName))
+				{
+					event.consume();
+					message("Blocked — you haven't pulled the " + itemName + " card yet.");
+				}
+			}
+		}
+	}
+
+	private static boolean isNpcAction(MenuAction action)
+	{
+		switch (action)
+		{
+			case NPC_FIRST_OPTION:
+			case NPC_SECOND_OPTION:
+			case NPC_THIRD_OPTION:
+			case NPC_FOURTH_OPTION:
+			case NPC_FIFTH_OPTION:
+			case WIDGET_TARGET_ON_NPC:
+			case EXAMINE_NPC:
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	private static boolean isSceneAction(MenuAction action)
+	{
+		switch (action)
+		{
+			case GAME_OBJECT_FIRST_OPTION:
+			case GAME_OBJECT_SECOND_OPTION:
+			case GAME_OBJECT_THIRD_OPTION:
+			case GAME_OBJECT_FOURTH_OPTION:
+			case GAME_OBJECT_FIFTH_OPTION:
+			case WIDGET_TARGET_ON_GAME_OBJECT:
+			case GROUND_ITEM_FIRST_OPTION:
+			case GROUND_ITEM_SECOND_OPTION:
+			case GROUND_ITEM_THIRD_OPTION:
+			case GROUND_ITEM_FOURTH_OPTION:
+			case GROUND_ITEM_FIFTH_OPTION:
+			case WIDGET_TARGET_ON_GROUND_ITEM:
+				return true;
+			default:
+				return false;
+		}
+	}
+
 	@Subscribe
 	public void onMenuEntryAdded(MenuEntryAdded event)
 	{
@@ -368,35 +468,54 @@ public class ChunkTcgPlugin extends Plugin
 		return !state.isItemUnlocked(name);
 	}
 
-	/**
-	 * Opens the one-time starter pack. Called from the panel (EDT). Returns the
-	 * revealed mob name, or null if a starter was already chosen.
-	 */
-	private String openStarterPack()
+	/** Opens a starter pack from the panel (EDT). */
+	private List<PackService.PullResult> openStarterPackFromPanel()
 	{
-		String mob = packs.openStarterPack(pulls ->
+		boolean first = state.getStarterPacksOpened() == 0;
+		List<PackService.PullResult> pulls = packs.openStarterPack();
+		if (pulls == null)
 		{
-			clientThread.invoke(() ->
-			{
-				if (pulls.isEmpty())
-				{
-					message("Unlucky — your starter mob has no drop table at all! "
-						+ "Anything you kill in your zone still joins your card pool.");
-					return;
-				}
-				for (PackService.PullResult pull : pulls)
-				{
-					message("Starter card: " + pull.getItemName() + " [" + pull.getTier().getLabel() + "]");
-				}
-			});
-			refreshPanel();
-		});
-		if (mob != null)
-		{
-			clientThread.invoke(() -> message("Your starter pack reveals... " + mob
-				+ "! Its drop table is now your card pool. Happy hunting."));
+			return null;
 		}
-		return mob;
+		if (first)
+		{
+			clientThread.invoke(() -> message("Your starting zone is home to "
+				+ config.starterMobs().replace(";", ", ")
+				+ " — their drop tables seed the pack pool. Open your starter packs!"));
+		}
+		announcePulls(pulls, "Starter card");
+		return pulls;
+	}
+
+	/** Opens a regular pack from the panel (EDT). */
+	private List<PackService.PullResult> openPackFromPanel()
+	{
+		List<PackService.PullResult> pulls = packs.openPack();
+		if (pulls != null)
+		{
+			announcePulls(pulls, "Pulled");
+		}
+		return pulls;
+	}
+
+	private void announcePulls(List<PackService.PullResult> pulls, String prefix)
+	{
+		clientThread.invoke(() ->
+		{
+			for (PackService.PullResult pull : pulls)
+			{
+				if (pull.isZoneCard())
+				{
+					message("★ ZONE CARD! " + pull.getItemName());
+					cardToastOverlay.push(pull.getItemName(), -1, null);
+				}
+				else if (pull.isNew())
+				{
+					message(prefix + ": " + pull.getItemName() + " [" + pull.getTier().getLabel() + "]");
+					cardToastOverlay.push(pull.getItemName(), pull.getItemId(), pull.getTier());
+				}
+			}
+		});
 	}
 
 	private void prefetchDiscovered()
@@ -404,6 +523,17 @@ public class ChunkTcgPlugin extends Plugin
 		for (String npc : state.allDiscoveredNpcs())
 		{
 			drops.ensureFetched(npc, this::refreshPanel);
+		}
+		// Warm the starting mobs' tables so starter packs have a real pool
+		if (!state.starterComplete())
+		{
+			for (String mob : config.starterMobs().split(";"))
+			{
+				if (!mob.trim().isEmpty())
+				{
+					drops.ensureFetched(mob.trim(), this::refreshPanel);
+				}
+			}
 		}
 	}
 

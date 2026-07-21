@@ -34,7 +34,7 @@ public class TcgStateService
 	private static final String KEY_VIOLATIONS = "violations";
 	private static final String KEY_PURCHASES = "chunkPurchases";
 	private static final String KEY_ZONE_MODE = "zoneMode";
-	private static final String KEY_STARTER = "starterChosen";
+	private static final String KEY_STARTER_PACKS = "starterPacksOpened";
 
 	@Inject
 	private ConfigManager configManager;
@@ -73,7 +73,7 @@ public class TcgStateService
 	private int chunkPurchases;
 
 	@Getter
-	private boolean starterChosen;
+	private int starterPacksOpened;
 
 	@Getter
 	private boolean loaded;
@@ -149,8 +149,7 @@ public class TcgStateService
 		credits = getIntKey(KEY_CREDITS);
 		violations = getIntKey(KEY_VIOLATIONS);
 		chunkPurchases = getIntKey(KEY_PURCHASES);
-		starterChosen = Boolean.parseBoolean(
-			configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_STARTER));
+		starterPacksOpened = getIntKey(KEY_STARTER_PACKS);
 		loaded = true;
 		log.debug("Loaded state: {} chunks, {} cards, {} credits", unlockedChunks.size(), cards.size(), credits);
 	}
@@ -186,13 +185,18 @@ public class TcgStateService
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_PURCHASES, chunkPurchases);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_ZONE_MODE, config.zoneSize().name());
-		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_STARTER, starterChosen);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_STARTER_PACKS, starterPacksOpened);
 	}
 
-	public void setStarterChosen()
+	public void incrementStarterPacks()
 	{
-		starterChosen = true;
+		starterPacksOpened++;
 		save();
+	}
+
+	public boolean starterComplete()
+	{
+		return starterPacksOpened >= config.starterPackCount();
 	}
 
 	/** Wipe this character's entire run and start fresh. */
@@ -204,7 +208,7 @@ public class TcgStateService
 		credits = 0;
 		violations = 0;
 		chunkPurchases = 0;
-		starterChosen = false;
+		starterPacksOpened = 0;
 		unlockedChunks.addAll(parseStartingAreas());
 		save();
 		log.debug("Run reset");

@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Supplier;
-import java.awt.FlowLayout;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -49,7 +48,8 @@ public class ChunkTcgPanel extends PluginPanel
 	private final ItemManager itemManager;
 	private final ZoneGrid zones;
 	private final Supplier<WorldPoint> playerPos;
-	private final Supplier<String> starterOpener;
+	private final Supplier<List<PackService.PullResult>> starterOpener;
+	private final Supplier<List<PackService.PullResult>> packOpener;
 
 	private final JPanel albumContent = new JPanel();
 	private final JPanel packsContent = new JPanel();
@@ -58,7 +58,8 @@ public class ChunkTcgPanel extends PluginPanel
 
 	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, PackService packs,
 		ChunkTcgConfig config, ItemManager itemManager, ZoneGrid zones,
-		Supplier<WorldPoint> playerPos, Supplier<String> starterOpener)
+		Supplier<WorldPoint> playerPos, Supplier<List<PackService.PullResult>> starterOpener,
+		Supplier<List<PackService.PullResult>> packOpener)
 	{
 		super(false);
 		this.state = state;
@@ -69,6 +70,7 @@ public class ChunkTcgPanel extends PluginPanel
 		this.zones = zones;
 		this.playerPos = playerPos;
 		this.starterOpener = starterOpener;
+		this.packOpener = packOpener;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -136,9 +138,9 @@ public class ChunkTcgPanel extends PluginPanel
 
 		if (npcs.isEmpty())
 		{
-			albumContent.add(infoLabel(state.isStarterChosen()
+			albumContent.add(infoLabel(state.starterComplete()
 				? "Kill something in an unlocked zone to discover its cards. Go punch a goblin!"
-				: "Open your starter pack in the Packs tab — fate will pick your first hunt!"));
+				: "Open your starter packs in the Packs tab — fate decides your loadout!"));
 		}
 
 		for (String npc : new TreeSet<>(npcs))
@@ -220,11 +222,14 @@ public class ChunkTcgPanel extends PluginPanel
 
 	private JPanel cardCell(String itemName, CardEntry owned, RarityTier tier)
 	{
+		// Mini trading card: rarity-coloured frame, item art, count badge
 		JPanel cell = new JPanel(new BorderLayout());
-		cell.setPreferredSize(new Dimension(38, 42));
-		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		cell.setBorder(BorderFactory.createLineBorder(
-			owned != null ? tier.getColor() : ColorScheme.MEDIUM_GRAY_COLOR.darker(), 1));
+		cell.setPreferredSize(new Dimension(40, 52));
+		cell.setBackground(new Color(30, 30, 36));
+		cell.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(
+				owned != null ? tier.getColor() : ColorScheme.MEDIUM_GRAY_COLOR.darker(), 2, true),
+			BorderFactory.createEmptyBorder(1, 1, 1, 1)));
 
 		JLabel icon = new JLabel("?", SwingConstants.CENTER);
 		icon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
@@ -265,31 +270,29 @@ public class ChunkTcgPanel extends PluginPanel
 			return;
 		}
 
-		if (!state.isStarterChosen())
+		if (!state.starterComplete())
 		{
-			packsContent.add(header("Choose your starter pack"));
-			packsContent.add(infoLabel("One of these packs holds your first mob card — "
-				+ "fate decides what you start killing. Pick one!"));
+			int opened = state.getStarterPacksOpened();
+			int total = config.starterPackCount();
+			packsContent.add(header("Starter packs: " + opened + "/" + total + " opened"));
+			packsContent.add(infoLabel("Nothing is unlocked — not even bronze. These free packs "
+				+ "draw from your starting zone's mobs plus a pool of basics, so fate decides "
+				+ "what kind of adventurer you become."));
 			packsContent.add(Box.createVerticalStrut(6));
-			JPanel packRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-			packRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			for (int i = 1; i <= 5; i++)
+
+			JButton open = new JButton("Open starter pack " + (opened + 1) + " of " + total);
+			open.addActionListener(e ->
 			{
-				JButton packBtn = new JButton("?");
-				packBtn.setPreferredSize(new Dimension(36, 48));
-				packBtn.setToolTipText("Starter pack " + i);
-				packBtn.addActionListener(e ->
-				{
-					String mob = starterOpener.get();
-					if (mob != null)
-					{
-						refresh();
-					}
-				});
-				packRow.add(packBtn);
-			}
-			packsContent.add(packRow);
-			packsContent.add(Box.createVerticalStrut(12));
+				List<PackService.PullResult> pulls = starterOpener.get();
+				rebuildPacks(pulls);
+				rebuildAlbum();
+				rebuildProgress();
+				revalidate();
+				repaint();
+			});
+			packsContent.add(open);
+			packsContent.add(Box.createVerticalStrut(10));
+			renderPulls(lastPulls);
 			return;
 		}
 
@@ -302,7 +305,7 @@ public class ChunkTcgPanel extends PluginPanel
 		buy.setEnabled(poolSize > 0 && state.getCredits() >= config.packCost());
 		buy.addActionListener(e ->
 		{
-			List<PackService.PullResult> pulls = packs.openPack();
+			List<PackService.PullResult> pulls = packOpener.get();
 			rebuildPacks(pulls);
 			rebuildAlbum();
 			rebuildProgress();
@@ -325,30 +328,52 @@ public class ChunkTcgPanel extends PluginPanel
 		packsContent.add(sell);
 		packsContent.add(Box.createVerticalStrut(10));
 
-		if (lastPulls != null)
+		renderPulls(lastPulls);
+	}
+
+	private void renderPulls(List<PackService.PullResult> lastPulls)
+	{
+		if (lastPulls == null)
 		{
-			packsContent.add(header("Pack results"));
-			for (PackService.PullResult pull : lastPulls)
+			return;
+		}
+		packsContent.add(header("Pack results"));
+		for (PackService.PullResult pull : lastPulls)
+		{
+			JPanel row = new JPanel(new BorderLayout(4, 0));
+			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			row.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createMatteBorder(0, 3, 0, 0,
+					pull.isZoneCard() ? new Color(255, 215, 0) : pull.getTier().getColor()),
+				BorderFactory.createEmptyBorder(2, 4, 2, 4)));
+
+			if (!pull.isZoneCard() && pull.getItemId() >= 0)
 			{
-				JLabel row;
-				if (pull.isZoneCard())
-				{
-					row = new JLabel("★ " + pull.getItemName());
-					row.setForeground(new Color(255, 215, 0));
-					row.setFont(row.getFont().deriveFont(Font.BOLD));
-				}
-				else
-				{
-					row = new JLabel((pull.isNew() ? "NEW  " : "dupe  ") + pull.getItemName()
-						+ "  [" + pull.getTier().getLabel() + "]");
-					row.setForeground(pull.getTier().getColor());
-					if (pull.isNew())
-					{
-						row.setFont(row.getFont().deriveFont(Font.BOLD));
-					}
-				}
-				packsContent.add(row);
+				JLabel icon = new JLabel();
+				itemManager.getImage(pull.getItemId()).addTo(icon);
+				row.add(icon, BorderLayout.WEST);
 			}
+
+			JLabel label;
+			if (pull.isZoneCard())
+			{
+				label = new JLabel("★ " + pull.getItemName());
+				label.setForeground(new Color(255, 215, 0));
+				label.setFont(label.getFont().deriveFont(Font.BOLD));
+			}
+			else
+			{
+				label = new JLabel((pull.isNew() ? "NEW  " : "dupe  ") + pull.getItemName()
+					+ "  [" + pull.getTier().getLabel() + "]");
+				label.setForeground(pull.getTier().getColor());
+				if (pull.isNew())
+				{
+					label.setFont(label.getFont().deriveFont(Font.BOLD));
+				}
+			}
+			row.add(label, BorderLayout.CENTER);
+			packsContent.add(row);
+			packsContent.add(Box.createVerticalStrut(2));
 		}
 	}
 

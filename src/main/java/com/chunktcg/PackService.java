@@ -137,57 +137,66 @@ public class PackService
 	}
 
 	/**
-	 * Opens the one-time starter pack: picks a random starter mob, registers it
-	 * to the starting zone, and (once its drop table arrives from the wiki)
-	 * awards random item cards from it. onMobChosen runs immediately with the
-	 * mob name; onItemCards runs later (on an OkHttp thread) with the pulls.
+	 * Opens one of the free starter packs. The starter pool is the union of the
+	 * starting zone mobs' drop tables plus the curated basics list — no zone
+	 * cards. The first pack also discovers all starting mobs and grants the
+	 * starter credits. Returns null once all starter packs are used up.
 	 */
-	public String openStarterPack(java.util.function.Consumer<List<PullResult>> onItemCards)
+	public List<PullResult> openStarterPack()
 	{
-		if (state.isStarterChosen())
+		if (state.starterComplete())
 		{
 			return null;
 		}
-		List<String> mobs = new ArrayList<>();
-		for (String mob : config.starterMobs().split(";"))
+		if (state.getStarterPacksOpened() == 0)
 		{
-			if (!mob.trim().isEmpty())
+			int zone = state.primaryZoneId();
+			for (String mob : config.starterMobs().split(";"))
 			{
-				mobs.add(mob.trim());
+				if (!mob.trim().isEmpty())
+				{
+					state.discoverNpc(zone, mob.trim());
+					drops.ensureFetched(mob.trim(), () ->
+					{
+					});
+				}
 			}
+			state.addCredits(config.starterCredits());
 		}
-		if (mobs.isEmpty())
+
+		Map<String, Drop> pool = new java.util.HashMap<>(drops.unionDrops(state.allDiscoveredNpcs()));
+		for (String basic : config.starterBasics().split(";"))
 		{
-			mobs.add("Goblin");
+			String b = basic.trim();
+			if (b.isEmpty())
+			{
+				continue;
+			}
+			pool.putIfAbsent(WikiDropsService.normalize(b), new Drop(b, 1.0 / 8));
 		}
-		String mob = mobs.get(random.nextInt(mobs.size()));
-
-		state.setStarterChosen();
-		state.discoverNpc(state.primaryZoneId(), mob);
-		state.addCredits(config.starterCredits());
-
-		drops.ensureFetched(mob, () ->
+		if (pool.isEmpty())
 		{
-			List<Drop> table = drops.get(mob);
-			if (table == null || table.isEmpty())
-			{
-				// Mob with no drop table (looking at you, ducks) — report empty pulls
-				onItemCards.accept(new ArrayList<>());
-				return;
-			}
-			List<Drop> shuffled = new ArrayList<>(table);
-			java.util.Collections.shuffle(shuffled, random);
-			List<PullResult> pulls = new ArrayList<>();
-			for (int i = 0; i < Math.min(config.starterItemCards(), shuffled.size()); i++)
-			{
-				Drop d = shuffled.get(i);
-				int itemId = resolveItemId(d.getItemName());
-				boolean isNew = state.awardCard(d.getItemName(), itemId);
-				pulls.add(PullResult.item(d.getItemName(), itemId, d.tier(), isNew));
-			}
-			onItemCards.accept(pulls);
-		});
-		return mob;
+			return null;
+		}
+
+		Map<RarityTier, List<Drop>> byTier = new EnumMap<>(RarityTier.class);
+		for (Drop d : pool.values())
+		{
+			byTier.computeIfAbsent(d.tier(), t -> new ArrayList<>()).add(d);
+		}
+
+		List<PullResult> results = new ArrayList<>();
+		for (int i = 0; i < config.packSize(); i++)
+		{
+			RarityTier tier = rollTier(byTier);
+			List<Drop> candidates = byTier.get(tier);
+			Drop pulled = candidates.get(random.nextInt(candidates.size()));
+			int itemId = resolveItemId(pulled.getItemName());
+			boolean isNew = state.awardCard(pulled.getItemName(), itemId);
+			results.add(PullResult.item(pulled.getItemName(), itemId, tier, isNew));
+		}
+		state.incrementStarterPacks();
+		return results;
 	}
 
 	private RarityTier rollTier(Map<RarityTier, List<Drop>> byTier)

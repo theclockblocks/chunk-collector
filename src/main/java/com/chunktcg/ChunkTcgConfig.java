@@ -60,8 +60,8 @@ public interface ChunkTcgConfig extends Config
 
 	@ConfigItem(
 		keyName = "starterMobs",
-		name = "Starter pack mobs",
-		description = "NPCs that can appear as the mob card in a starter pack, separated by semicolons. Should be killable NPCs in your starting zone.",
+		name = "Starting zone mobs",
+		description = "Killable NPCs in your starting zone, separated by semicolons. All of them are auto-discovered when you begin, seeding the pack pool.",
 		section = progression,
 		position = 2
 	)
@@ -71,24 +71,38 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "starterItemCards",
-		name = "Starter item cards",
-		description = "Number of random item cards from the starter mob's drop table included in the starter pack",
+		keyName = "starterPackCount",
+		name = "Starter packs",
+		description = "Number of free packs opened at the start of a run. Enough cards that you aren't locked out of everything; after that the normal economy takes over.",
 		section = progression,
 		position = 3
 	)
-	@Range(min = 0, max = 10)
-	default int starterItemCards()
+	@Range(min = 0, max = 20)
+	default int starterPackCount()
 	{
-		return 3;
+		return 5;
+	}
+
+	@ConfigItem(
+		keyName = "starterBasics",
+		name = "Starter basics pool",
+		description = "Curated items mixed into STARTER packs only (separated by semicolons), so early pulls include usable gear, tools and food — nothing is free anymore, not even bronze.",
+		section = progression,
+		position = 4
+	)
+	default String starterBasics()
+	{
+		return "Bronze sword;Bronze axe;Bronze pickaxe;Bronze dagger;Wooden shield;Shortbow;Bronze arrow;"
+			+ "Small fishing net;Tinderbox;Hammer;Chisel;Knife;Bucket;Pot;Bread;Shrimps;Cooked meat;"
+			+ "Air rune;Mind rune;Water rune;Earth rune;Fire rune";
 	}
 
 	@ConfigItem(
 		keyName = "starterCredits",
 		name = "Starter credits",
-		description = "Credits included in the starter pack",
+		description = "Credits granted when you begin a run",
 		section = progression,
-		position = 4
+		position = 5
 	)
 	default int starterCredits()
 	{
@@ -98,13 +112,13 @@ public interface ChunkTcgConfig extends Config
 	@ConfigItem(
 		keyName = "alwaysUnlocked",
 		name = "Always-unlocked items",
-		description = "Item name prefixes that are usable without a card, separated by semicolons. Bronze gear is free from the start.",
+		description = "Item name prefixes that are usable without a card, separated by semicolons. Empty by default — even tutorial island bronze is locked until pulled.",
 		section = progression,
-		position = 5
+		position = 6
 	)
 	default String alwaysUnlocked()
 	{
-		return "Bronze";
+		return "";
 	}
 
 	@ConfigItem(
@@ -112,7 +126,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Lock items without cards",
 		description = "Gray out items you haven't pulled from a pack and remove their action menu options. Packs are life.",
 		section = progression,
-		position = 6
+		position = 7
 	)
 	default boolean enforceItemLock()
 	{
@@ -124,7 +138,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Blocked actions",
 		description = "Menu actions removed on locked items, separated by semicolons",
 		section = progression,
-		position = 7
+		position = 8
 	)
 	default String blockedOps()
 	{
@@ -132,11 +146,35 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "blockZoneInteractions",
+		name = "Block locked-zone interactions",
+		description = "Clicks on NPCs, objects and ground items inside locked zones are cancelled outright (hold-your-ground style). Walking through locked zones stays allowed.",
+		section = progression,
+		position = 9
+	)
+	default boolean blockZoneInteractions()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "blockShopBuying",
+		name = "Block buying locked items",
+		description = "Bronzeman-style: shop and Grand Exchange purchases of items you haven't pulled are cancelled",
+		section = progression,
+		position = 10
+	)
+	default boolean blockShopBuying()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "warnOnEnterLocked",
 		name = "Warn entering locked zone",
 		description = "Show a chat warning when you walk into a locked zone",
 		section = progression,
-		position = 8
+		position = 11
 	)
 	default boolean warnOnEnterLocked()
 	{
@@ -146,9 +184,9 @@ public interface ChunkTcgConfig extends Config
 	@ConfigItem(
 		keyName = "resetRun",
 		name = "Reset run",
-		description = "DANGER: turning this on wipes this character's entire Chunk TCG run — zones, cards, credits, starter pack — and starts fresh. The toggle switches itself back off.",
+		description = "DANGER: turning this on wipes this character's entire Chunk TCG run — zones, cards, credits, starter packs — and starts fresh. The toggle switches itself back off.",
 		section = progression,
-		position = 9
+		position = 12
 	)
 	default boolean resetRun()
 	{
