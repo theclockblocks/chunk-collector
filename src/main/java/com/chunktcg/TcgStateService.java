@@ -62,13 +62,14 @@ public class TcgStateService
 	private final Map<Integer, Set<String>> discovered = new ConcurrentHashMap<>();
 
 	/**
-	 * Collection is PER MOB: keyed "mobname|itemname" (both lower-cased).
-	 * Bones from a goblin do not tick the cow's bones slot.
+	 * Collection is PER ZONE AND MOB: keyed "zoneId|mobname|itemname".
+	 * Bones from a castle goblin tick neither the cow's slot nor the slot of
+	 * a goblin living in another zone.
 	 */
 	@Getter
 	private final Map<String, CardEntry> collected = new ConcurrentHashMap<>();
 
-	/** lower mob name -> counted kills (in unlocked zones only). */
+	/** "zoneId|mobname" -> counted kills (in unlocked zones only). */
 	@Getter
 	private final Map<String, Integer> killCounts = new ConcurrentHashMap<>();
 
@@ -153,10 +154,10 @@ public class TcgStateService
 			Map<String, CardEntry> saved = gson.fromJson(collectedJson, t);
 			if (saved != null)
 			{
-				// Only per-mob keys ("mob|item") are valid; drop legacy global entries
+				// Only zone-scoped keys ("zone|mob|item") are valid; drop legacy formats
 				for (Map.Entry<String, CardEntry> e : saved.entrySet())
 				{
-					if (e.getKey().contains("|"))
+					if (e.getKey().split("\\|").length == 3)
 					{
 						collected.put(e.getKey(), e.getValue());
 					}
@@ -173,7 +174,14 @@ public class TcgStateService
 			Map<String, Integer> saved = gson.fromJson(killsJson, t);
 			if (saved != null)
 			{
-				killCounts.putAll(saved);
+				// Only zone-scoped keys ("zone|mob") are valid
+				for (Map.Entry<String, Integer> e : saved.entrySet())
+				{
+					if (e.getKey().contains("|"))
+					{
+						killCounts.put(e.getKey(), e.getValue());
+					}
+				}
 			}
 		}
 
@@ -362,20 +370,21 @@ public class TcgStateService
 		return added;
 	}
 
-	private static String collectionKey(String mobName, String itemName)
+	private static String collectionKey(int zoneId, String mobName, String itemName)
 	{
-		return WikiDropsService.normalize(mobName) + "|" + WikiDropsService.normalize(itemName);
+		return zoneId + "|" + WikiDropsService.normalize(mobName)
+			+ "|" + WikiDropsService.normalize(itemName);
 	}
 
-	/** Record a drop collected FROM this mob. Returns true if it's a new entry for that mob. */
-	public boolean collectItem(String mobName, String itemName, int itemId)
+	/** Record a drop collected from this mob IN this zone. Returns true if new. */
+	public boolean collectItem(int zoneId, String mobName, String itemName, int itemId)
 	{
 		// The first logged drop freezes the run's threshold — no goalpost-moving
 		if (lockedThreshold == 0)
 		{
 			lockedThreshold = config.thresholdPercent();
 		}
-		String key = collectionKey(mobName, itemName);
+		String key = collectionKey(zoneId, mobName, itemName);
 		CardEntry entry = collected.get(key);
 		boolean isNew = entry == null;
 		if (isNew)
@@ -394,26 +403,26 @@ public class TcgStateService
 		return isNew;
 	}
 
-	public boolean isCollected(String mobName, String itemName)
+	public boolean isCollected(int zoneId, String mobName, String itemName)
 	{
-		return collected.containsKey(collectionKey(mobName, itemName));
+		return collected.containsKey(collectionKey(zoneId, mobName, itemName));
 	}
 
-	public CardEntry getCollectedEntry(String mobName, String itemName)
+	public CardEntry getCollectedEntry(int zoneId, String mobName, String itemName)
 	{
-		return collected.get(collectionKey(mobName, itemName));
+		return collected.get(collectionKey(zoneId, mobName, itemName));
 	}
 
-	/** Count a kill toward the mob's kc (only called for unlocked-zone kills). */
-	public void addKill(String mobName)
+	/** Count a kill toward the mob's kc in that zone (unlocked-zone kills only). */
+	public void addKill(int zoneId, String mobName)
 	{
-		killCounts.merge(WikiDropsService.normalize(mobName), 1, Integer::sum);
+		killCounts.merge(zoneId + "|" + WikiDropsService.normalize(mobName), 1, Integer::sum);
 		save();
 	}
 
-	public int killCount(String mobName)
+	public int killCount(int zoneId, String mobName)
 	{
-		Integer kc = killCounts.get(WikiDropsService.normalize(mobName));
+		Integer kc = killCounts.get(zoneId + "|" + WikiDropsService.normalize(mobName));
 		return kc == null ? 0 : kc;
 	}
 
@@ -474,7 +483,7 @@ public class TcgStateService
 			{
 				int pts = pointsFor(d.tier());
 				total += pts;
-				if (isCollected(mob, d.getItemName()))
+				if (isCollected(chunkId, mob, d.getItemName()))
 				{
 					earned += pts;
 				}
@@ -519,13 +528,13 @@ public class TcgStateService
 		return newClaims;
 	}
 
-	/** Owned collection entries among a mob's drop list. */
-	public int ownedOf(String mobName, List<Drop> dropList)
+	/** Owned collection entries among a mob's drop list, for one zone. */
+	public int ownedOf(int zoneId, String mobName, List<Drop> dropList)
 	{
 		int owned = 0;
 		for (Drop d : dropList)
 		{
-			if (isCollected(mobName, d.getItemName()))
+			if (isCollected(zoneId, mobName, d.getItemName()))
 			{
 				owned++;
 			}

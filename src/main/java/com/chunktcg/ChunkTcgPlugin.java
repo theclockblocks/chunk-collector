@@ -327,7 +327,7 @@ public class ChunkTcgPlugin extends Plugin
 		}
 
 		state.discoverNpc(chunk, name);
-		state.addKill(name);
+		state.addKill(chunk, name);
 		drops.ensureFetched(name, this::refreshPanel);
 
 		for (ItemStack stack : event.getItems())
@@ -339,7 +339,7 @@ public class ChunkTcgPlugin extends Plugin
 			{
 				continue;
 			}
-			if (state.collectItem(name, itemName, canonicalId))
+			if (state.collectItem(chunk, name, itemName, canonicalId))
 			{
 				// Rarity from THIS mob's table — the same item can differ per mob
 				RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(name));

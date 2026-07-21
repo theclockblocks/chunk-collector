@@ -255,14 +255,14 @@ public class ChunkTcgPanel extends PluginPanel
 			{
 				for (String npc : new TreeSet<>(zoneMobs))
 				{
-					addMobSection(npc);
+					addMobSection(zoneId, npc);
 				}
 			}
 			collectionContent.add(Box.createVerticalStrut(6));
 		}
 	}
 
-	private void addMobSection(String npc)
+	private void addMobSection(int zoneId, String npc)
 	{
 		List<Drop> cached = drops.get(npc);
 		if (cached != null && cached.isEmpty())
@@ -287,19 +287,19 @@ public class ChunkTcgPanel extends PluginPanel
 		}
 
 		table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
-		int owned = state.ownedOf(npc, table);
+		int owned = state.ownedOf(zoneId, npc, table);
 		int earnedPts = 0;
 		int totalPts = 0;
 		for (Drop d : table)
 		{
 			int pts = state.pointsFor(d.tier());
 			totalPts += pts;
-			if (state.isCollected(npc, d.getItemName()))
+			if (state.isCollected(zoneId, npc, d.getItemName()))
 			{
 				earnedPts += pts;
 			}
 		}
-		int kc = state.killCount(npc);
+		int kc = state.killCount(zoneId, npc);
 		section.add(header(npc + " (" + kc + " kc)  " + owned + "/" + table.size()
 			+ "  ·  " + earnedPts + "/" + totalPts + " pts"));
 
@@ -309,7 +309,7 @@ public class ChunkTcgPanel extends PluginPanel
 		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		for (Drop d : table)
 		{
-			grid.add(itemCell(d, state.getCollectedEntry(npc, d.getItemName())));
+			grid.add(itemCell(d, state.getCollectedEntry(zoneId, npc, d.getItemName())));
 		}
 		section.add(grid);
 		collectionContent.add(section);
