@@ -95,7 +95,7 @@ public class ChunkTcgPlugin extends Plugin
 		overlayManager.add(toastOverlay);
 
 		panel = new ChunkTcgPanel(state, drops, config, itemManager, zones,
-			() -> lastPlayerPos, this::notifyZoneUnlocked);
+			() -> lastPlayerPos, this::notifyZoneUnlocked, this::resetFromPanel);
 		navButton = NavigationButton.builder()
 			.tooltip("Chunk Collector")
 			.icon(buildIcon())
@@ -490,6 +490,18 @@ public class ChunkTcgPlugin extends Plugin
 			drops.ensureFetched(npc, this::refreshPanel);
 		}
 		syncRegionLocker();
+	}
+
+	/** Reset triggered from the panel's confirmed dialog (EDT). */
+	private void resetFromPanel()
+	{
+		if (!state.isLoaded())
+		{
+			return;
+		}
+		state.resetRun();
+		seedAndPrefetch();
+		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
 	}
 
 	private void notifyZoneUnlocked(int zoneId)

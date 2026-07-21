@@ -28,6 +28,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.Scrollable;
@@ -50,6 +51,7 @@ public class ChunkTcgPanel extends PluginPanel
 	private final ZoneGrid zones;
 	private final Supplier<WorldPoint> playerPos;
 	private final Consumer<Integer> unlockNotifier;
+	private final Runnable resetAction;
 
 	private final JPanel collectionContent = new JPanel();
 	private final JPanel zonesContent = new JPanel();
@@ -57,7 +59,7 @@ public class ChunkTcgPanel extends PluginPanel
 
 	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, ChunkTcgConfig config,
 		ItemManager itemManager, ZoneGrid zones, Supplier<WorldPoint> playerPos,
-		Consumer<Integer> unlockNotifier)
+		Consumer<Integer> unlockNotifier, Runnable resetAction)
 	{
 		super(false);
 		this.state = state;
@@ -67,6 +69,7 @@ public class ChunkTcgPanel extends PluginPanel
 		this.zones = zones;
 		this.playerPos = playerPos;
 		this.unlockNotifier = unlockNotifier;
+		this.resetAction = resetAction;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -367,6 +370,29 @@ public class ChunkTcgPanel extends PluginPanel
 			zonesContent.add(row);
 			zonesContent.add(Box.createVerticalStrut(2));
 		}
+
+		zonesContent.add(Box.createVerticalStrut(14));
+		JButton reset = new JButton("Reset run...");
+		reset.setAlignmentX(Component.LEFT_ALIGNMENT);
+		reset.setForeground(new Color(255, 120, 120));
+		reset.setToolTipText("Wipe this character's entire run — requires typing 'reset' to confirm");
+		reset.addActionListener(e ->
+		{
+			String typed = (String) JOptionPane.showInputDialog(this,
+				"This wipes ALL progress for this character:\nzones, collection, tokens, locked threshold.\n\nType reset to confirm:",
+				"Reset run", JOptionPane.WARNING_MESSAGE, null, null, "");
+			if (typed != null && typed.trim().equalsIgnoreCase("reset"))
+			{
+				resetAction.run();
+				refresh();
+			}
+			else if (typed != null)
+			{
+				JOptionPane.showMessageDialog(this, "Reset not performed — you must type exactly: reset",
+					"Reset run", JOptionPane.INFORMATION_MESSAGE);
+			}
+		});
+		zonesContent.add(reset);
 	}
 
 	private int chunkDistance(int chunkId, WorldPoint pos)
