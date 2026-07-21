@@ -44,9 +44,13 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
+import java.awt.image.BufferedImage;
+import javax.swing.ImageIcon;
 import net.runelite.client.ui.components.materialtabs.MaterialTab;
 import net.runelite.client.ui.components.materialtabs.MaterialTabGroup;
 import net.runelite.client.util.AsyncBufferedImage;
+import net.runelite.client.util.ImageUtil;
+import net.runelite.http.api.item.ItemPrice;
 
 public class ChunkTcgPanel extends PluginPanel
 {
@@ -70,6 +74,9 @@ public class ChunkTcgPanel extends PluginPanel
 	/** Per-zone expand/collapse toggles; absent = default (current zone open). */
 	private final Map<Integer, Boolean> zoneExpanded = new HashMap<>();
 	private final Map<Integer, Boolean> taskZoneExpanded = new HashMap<>();
+
+	/** item name -> resolved item id for ghost icons (-1 = unresolvable). */
+	private final Map<String, Integer> itemIdCache = new HashMap<>();
 
 	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, ChunkTcgConfig config,
 		ItemManager itemManager, ZoneGrid zones, ChallengeData challenges,
@@ -461,6 +468,24 @@ public class ChunkTcgPanel extends PluginPanel
 			icon.setText("✔");
 			icon.setForeground(tier.getColor());
 		}
+		else
+		{
+			// Uncollected: show a grayed-out ghost of the item when resolvable
+			int ghostId = resolveItemId(drop.getItemName());
+			if (ghostId >= 0)
+			{
+				icon.setText("");
+				AsyncBufferedImage img = itemManager.getImage(ghostId);
+				Runnable apply = () -> SwingUtilities.invokeLater(() ->
+				{
+					BufferedImage ghost = ImageUtil.alphaOffset(ImageUtil.grayscaleImage(img), 0.4f);
+					icon.setIcon(new ImageIcon(ghost));
+					icon.repaint();
+				});
+				img.onLoaded(apply);
+				apply.run();
+			}
+		}
 		cell.add(icon, BorderLayout.CENTER);
 
 		cell.setToolTipText("<html>" + drop.getItemName()
@@ -468,6 +493,22 @@ public class ChunkTcgPanel extends PluginPanel
 			+ "<br>" + tier.getLabel() + " · " + state.pointsFor(tier) + " pts"
 			+ (owned != null ? "<br>Collected x" + owned.getCount() : "<br>Not collected") + "</html>");
 		return cell;
+	}
+
+	/** Resolve an item name to an id for ghost icons (tradeables only). */
+	private int resolveItemId(String itemName)
+	{
+		return itemIdCache.computeIfAbsent(WikiDropsService.normalize(itemName), k ->
+		{
+			for (ItemPrice p : itemManager.search(itemName))
+			{
+				if (p.getName().equalsIgnoreCase(itemName))
+				{
+					return p.getId();
+				}
+			}
+			return -1;
+		});
 	}
 
 	private static String formatRate(double rate)
