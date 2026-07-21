@@ -34,6 +34,7 @@ public class CardToastOverlay extends Overlay
 		final String text;
 		final int itemId;
 		final Color color;
+		String title = "Collected!";
 		long shownAt;
 
 		Toast(String text, int itemId, Color color)
@@ -55,11 +56,13 @@ public class CardToastOverlay extends Overlay
 		setLayer(OverlayLayer.ABOVE_WIDGETS);
 	}
 
-	public void push(String text, int itemId, RarityTier tier)
+	public void push(String title, String text, int itemId, RarityTier tier)
 	{
 		synchronized (queue)
 		{
-			queue.addLast(new Toast(text, itemId, tier != null ? tier.getColor() : new Color(255, 215, 0)));
+			Toast t = new Toast(text, itemId, tier != null ? tier.getColor() : new Color(255, 215, 0));
+			t.title = title;
+			queue.addLast(t);
 		}
 	}
 
@@ -106,7 +109,7 @@ public class CardToastOverlay extends Overlay
 		g.setFont(g.getFont().deriveFont(Font.BOLD, 12f));
 		FontMetrics fm = g.getFontMetrics();
 		g.setColor(Color.WHITE);
-		g.drawString("Card unlocked", textX, HEIGHT / 2 - 4);
+		g.drawString(toast.title, textX, HEIGHT / 2 - 4);
 		g.setColor(toast.color);
 		String name = toast.text;
 		if (fm.stringWidth(name) > WIDTH - textX - 8)

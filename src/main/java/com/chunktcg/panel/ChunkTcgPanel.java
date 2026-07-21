@@ -3,30 +3,29 @@ package com.chunktcg.panel;
 import com.chunktcg.CardEntry;
 import com.chunktcg.ChunkTcgConfig;
 import com.chunktcg.Drop;
-import com.chunktcg.PackService;
 import com.chunktcg.RarityTier;
 import com.chunktcg.TcgStateService;
 import com.chunktcg.WikiDropsService;
 import com.chunktcg.ZoneGrid;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import java.awt.Component;
-import java.awt.Rectangle;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -46,51 +45,42 @@ public class ChunkTcgPanel extends PluginPanel
 {
 	private final TcgStateService state;
 	private final WikiDropsService drops;
-	private final PackService packs;
 	private final ChunkTcgConfig config;
 	private final ItemManager itemManager;
 	private final ZoneGrid zones;
 	private final Supplier<WorldPoint> playerPos;
-	private final Supplier<List<PackService.PullResult>> starterOpener;
-	private final Supplier<List<PackService.PullResult>> packOpener;
+	private final Consumer<Integer> unlockNotifier;
 
-	private final JPanel albumContent = new JPanel();
-	private final JPanel packsContent = new JPanel();
-	private final JPanel progressContent = new JPanel();
+	private final JPanel collectionContent = new JPanel();
+	private final JPanel zonesContent = new JPanel();
 	private final JPanel display = new JPanel();
 
-	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, PackService packs,
-		ChunkTcgConfig config, ItemManager itemManager, ZoneGrid zones,
-		Supplier<WorldPoint> playerPos, Supplier<List<PackService.PullResult>> starterOpener,
-		Supplier<List<PackService.PullResult>> packOpener)
+	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, ChunkTcgConfig config,
+		ItemManager itemManager, ZoneGrid zones, Supplier<WorldPoint> playerPos,
+		Consumer<Integer> unlockNotifier)
 	{
 		super(false);
 		this.state = state;
 		this.drops = drops;
-		this.packs = packs;
 		this.config = config;
 		this.itemManager = itemManager;
 		this.zones = zones;
 		this.playerPos = playerPos;
-		this.starterOpener = starterOpener;
-		this.packOpener = packOpener;
+		this.unlockNotifier = unlockNotifier;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		albumContent.setLayout(new BoxLayout(albumContent, BoxLayout.Y_AXIS));
-		packsContent.setLayout(new BoxLayout(packsContent, BoxLayout.Y_AXIS));
-		progressContent.setLayout(new BoxLayout(progressContent, BoxLayout.Y_AXIS));
+		collectionContent.setLayout(new BoxLayout(collectionContent, BoxLayout.Y_AXIS));
+		zonesContent.setLayout(new BoxLayout(zonesContent, BoxLayout.Y_AXIS));
 
 		MaterialTabGroup tabGroup = new MaterialTabGroup(display);
-		MaterialTab albumTab = new MaterialTab("Album", tabGroup, wrapScroll(albumContent));
-		MaterialTab packsTab = new MaterialTab("Packs", tabGroup, wrapScroll(packsContent));
-		MaterialTab progressTab = new MaterialTab("Zones", tabGroup, wrapScroll(progressContent));
+		MaterialTab collectionTab = new MaterialTab("Collection", tabGroup, wrapScroll(collectionContent));
+		MaterialTab zonesTab = new MaterialTab("Zones", tabGroup, wrapScroll(zonesContent));
 		tabGroup.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
-		tabGroup.addTab(albumTab);
-		tabGroup.addTab(packsTab);
-		tabGroup.addTab(progressTab);
-		tabGroup.select(albumTab);
+		tabGroup.addTab(collectionTab);
+		tabGroup.addTab(zonesTab);
+		tabGroup.select(collectionTab);
 
 		add(tabGroup, BorderLayout.NORTH);
 		add(display, BorderLayout.CENTER);
@@ -160,44 +150,40 @@ public class ChunkTcgPanel extends PluginPanel
 			SwingUtilities.invokeLater(this::refresh);
 			return;
 		}
-		rebuildAlbum();
-		rebuildPacks(null);
-		rebuildProgress();
+		rebuildCollection();
+		rebuildZones();
 		revalidate();
 		repaint();
 	}
 
-	// ---- Album ----
+	// ---- Collection ----
 
-	private void rebuildAlbum()
+	private void rebuildCollection()
 	{
-		albumContent.removeAll();
+		collectionContent.removeAll();
 		if (!state.isLoaded())
 		{
-			albumContent.add(infoLabel("Log in to load your collection."));
+			collectionContent.add(infoLabel("Log in to load your collection log."));
 			return;
 		}
 
-		Set<String> npcs = new HashSet<>(state.allDiscoveredNpcs());
-		Map<String, CardEntry> cards = new HashMap<>(state.getCards());
-		Set<String> shownItems = new HashSet<>();
-
+		Set<String> npcs = new TreeSet<>(state.allDiscoveredNpcs());
 		if (npcs.isEmpty())
 		{
-			albumContent.add(infoLabel(state.starterComplete()
-				? "Kill something in an unlocked zone to discover its cards. Go punch a goblin!"
-				: "Open your starter packs in the Packs tab — fate decides your loadout!"));
+			collectionContent.add(infoLabel("Walk around your zone — sighted mobs' drop tables become your collection log."));
+			return;
 		}
 
-		for (String npc : new TreeSet<>(npcs))
+		for (String npc : npcs)
 		{
 			List<Drop> cached = drops.get(npc);
-			List<Drop> table = cached == null ? null : new ArrayList<>(cached);
-			if (table != null && table.isEmpty())
+			if (cached != null && cached.isEmpty())
 			{
-				// Known to drop nothing — nothing to collect, no album entry
+				// Known to drop nothing — nothing to collect, no log entry
 				continue;
 			}
+			List<Drop> table = cached == null ? null : new ArrayList<>(cached);
+
 			JPanel section = new JPanel();
 			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
 			section.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -207,92 +193,50 @@ public class ChunkTcgPanel extends PluginPanel
 			if (table == null)
 			{
 				section.add(header(npc + " — fetching drop table..."));
-				albumContent.add(section);
-				albumContent.add(Box.createVerticalStrut(6));
+				collectionContent.add(section);
+				collectionContent.add(Box.createVerticalStrut(6));
 				continue;
 			}
 
 			table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
 			int owned = state.ownedOf(table);
-			boolean mobUnlocked = state.isMobUnlocked(npc);
-			section.add(header(npc + "  " + owned + "/" + table.size()
-				+ (mobUnlocked ? "" : "  [LOCKED]")));
-			if (!mobUnlocked)
-			{
-				section.add(infoLabel("Sighted but locked — pull any card from its set to fight it."));
-			}
-
-			// Only cards actually pulled from packs are revealed — the rest stay a mystery
-			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
-			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
-			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
-			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			boolean any = false;
+			int earnedPts = 0;
+			int totalPts = 0;
 			for (Drop d : table)
 			{
-				String key = WikiDropsService.normalize(d.getItemName());
-				CardEntry ownedCard = cards.get(key);
-				if (ownedCard == null)
+				int pts = state.pointsFor(d.tier());
+				totalPts += pts;
+				if (state.isCollected(d.getItemName()))
 				{
-					continue;
+					earnedPts += pts;
 				}
-				any = true;
-				shownItems.add(key);
-				grid.add(cardCell(d.getItemName(), ownedCard, d.tier()));
 			}
-			if (any)
-			{
-				section.add(grid);
-			}
-			else
-			{
-				section.add(infoLabel("No cards pulled yet — open packs!"));
-			}
-			albumContent.add(section);
-			albumContent.add(Box.createVerticalStrut(6));
-		}
+			section.add(header(npc + "  " + owned + "/" + table.size()
+				+ "  ·  " + earnedPts + "/" + totalPts + " pts"));
 
-		// Cards owned that aren't in any discovered table (e.g. old pulls)
-		List<CardEntry> other = new ArrayList<>();
-		for (Map.Entry<String, CardEntry> e : cards.entrySet())
-		{
-			if (!shownItems.contains(e.getKey()))
-			{
-				other.add(e.getValue());
-			}
-		}
-		if (!other.isEmpty())
-		{
-			JPanel section = new JPanel();
-			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
-			section.setAlignmentX(Component.LEFT_ALIGNMENT);
-			section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-			section.add(header("Other cards"));
 			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
 			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
 			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			other.sort(Comparator.comparing(CardEntry::getName));
-			for (CardEntry e : other)
+			Map<String, CardEntry> collectedCopy = new HashMap<>(state.getCollected());
+			for (Drop d : table)
 			{
-				grid.add(cardCell(e.getName(), e, RarityTier.COMMON));
+				grid.add(itemCell(d, collectedCopy.get(WikiDropsService.normalize(d.getItemName()))));
 			}
 			section.add(grid);
-			albumContent.add(section);
+			collectionContent.add(section);
+			collectionContent.add(Box.createVerticalStrut(6));
 		}
 	}
 
-	private JPanel cardCell(String itemName, CardEntry owned, RarityTier tier)
+	private JPanel itemCell(Drop drop, CardEntry owned)
 	{
-		// Mini trading card: rarity-coloured frame, item art, count badge
+		RarityTier tier = drop.tier();
 		JPanel cell = new JPanel(new BorderLayout());
-		cell.setPreferredSize(new Dimension(40, 52));
+		cell.setPreferredSize(new Dimension(40, 44));
 		cell.setBackground(new Color(30, 30, 36));
-		cell.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(
-				owned != null ? tier.getColor() : ColorScheme.MEDIUM_GRAY_COLOR.darker(), 2, true),
-			BorderFactory.createEmptyBorder(1, 1, 1, 1)));
+		cell.setBorder(BorderFactory.createLineBorder(
+			owned != null ? tier.getColor() : ColorScheme.MEDIUM_GRAY_COLOR.darker(), 2, true));
 
 		JLabel icon = new JLabel("?", SwingConstants.CENTER);
 		icon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
@@ -309,175 +253,70 @@ public class ChunkTcgPanel extends PluginPanel
 		}
 		cell.add(icon, BorderLayout.CENTER);
 
-		if (owned != null && owned.getCount() > 1)
-		{
-			JLabel count = new JLabel("x" + owned.getCount(), SwingConstants.RIGHT);
-			count.setFont(count.getFont().deriveFont(9f));
-			count.setForeground(Color.WHITE);
-			cell.add(count, BorderLayout.SOUTH);
-		}
-
-		cell.setToolTipText("<html>" + itemName + "<br>" + tier.getLabel()
-			+ (owned != null ? "<br>Owned: " + owned.getCount() : "<br>Not collected") + "</html>");
+		cell.setToolTipText("<html>" + drop.getItemName() + "<br>" + tier.getLabel()
+			+ " · " + state.pointsFor(tier) + " pts"
+			+ (owned != null ? "<br>Collected x" + owned.getCount() : "<br>Not collected") + "</html>");
 		return cell;
 	}
 
-	// ---- Packs ----
+	// ---- Zones ----
 
-	private void rebuildPacks(List<PackService.PullResult> lastPulls)
+	private void rebuildZones()
 	{
-		packsContent.removeAll();
+		zonesContent.removeAll();
 		if (!state.isLoaded())
 		{
-			packsContent.add(infoLabel("Log in to open packs."));
+			zonesContent.add(infoLabel("Log in to see zone progress."));
 			return;
 		}
 
-		if (!state.starterComplete())
-		{
-			int opened = state.getStarterPacksOpened();
-			int total = config.starterPackCount();
-			packsContent.add(header("Starter packs: " + opened + "/" + total + " opened"));
-			packsContent.add(infoLabel("Nothing is unlocked — not even bronze. These free packs "
-				+ "draw from your starting zone's mobs plus a pool of basics, so fate decides "
-				+ "what kind of adventurer you become."));
-			packsContent.add(Box.createVerticalStrut(6));
-
-			JButton open = new JButton("Open starter pack " + (opened + 1) + " of " + total);
-			open.setAlignmentX(Component.LEFT_ALIGNMENT);
-			open.addActionListener(e ->
-			{
-				List<PackService.PullResult> pulls = starterOpener.get();
-				rebuildPacks(pulls);
-				rebuildAlbum();
-				rebuildProgress();
-				revalidate();
-				repaint();
-			});
-			packsContent.add(open);
-			packsContent.add(Box.createVerticalStrut(10));
-			renderPulls(lastPulls);
-			return;
-		}
-
-		int poolSize = packs.pool().size();
-		packsContent.add(header("Credits: " + state.getCredits()));
-		packsContent.add(infoLabel("Pack pool: " + poolSize + " cards from your unlocked zones"));
-		packsContent.add(Box.createVerticalStrut(8));
-
-		JButton buy = new JButton("Open pack (" + config.packCost() + " credits)");
-		buy.setAlignmentX(Component.LEFT_ALIGNMENT);
-		buy.setEnabled(poolSize > 0 && state.getCredits() >= config.packCost());
-		buy.addActionListener(e ->
-		{
-			List<PackService.PullResult> pulls = packOpener.get();
-			rebuildPacks(pulls);
-			rebuildAlbum();
-			rebuildProgress();
-			revalidate();
-			repaint();
-		});
-		packsContent.add(buy);
-		packsContent.add(Box.createVerticalStrut(4));
-
-		JButton sell = new JButton("Sell all duplicate cards");
-		sell.setAlignmentX(Component.LEFT_ALIGNMENT);
-		sell.addActionListener(e ->
-		{
-			int gained = state.sellAllDupes();
-			rebuildPacks(null);
-			rebuildAlbum();
-			packsContent.add(infoLabel("Sold dupes for " + gained + " credits."));
-			revalidate();
-			repaint();
-		});
-		packsContent.add(sell);
-		packsContent.add(Box.createVerticalStrut(10));
-
-		renderPulls(lastPulls);
-	}
-
-	private void renderPulls(List<PackService.PullResult> lastPulls)
-	{
-		if (lastPulls == null)
-		{
-			return;
-		}
-		packsContent.add(header("Pack results"));
-		for (PackService.PullResult pull : lastPulls)
-		{
-			JPanel row = new JPanel(new BorderLayout(4, 0));
-			row.setAlignmentX(Component.LEFT_ALIGNMENT);
-			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			row.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createMatteBorder(0, 3, 0, 0,
-					pull.isZoneCard() ? new Color(255, 215, 0) : pull.getTier().getColor()),
-				BorderFactory.createEmptyBorder(2, 4, 2, 4)));
-
-			if (!pull.isZoneCard() && pull.getItemId() >= 0)
-			{
-				JLabel icon = new JLabel();
-				itemManager.getImage(pull.getItemId()).addTo(icon);
-				row.add(icon, BorderLayout.WEST);
-			}
-
-			JLabel label;
-			if (pull.isZoneCard())
-			{
-				label = new JLabel("★ " + pull.getItemName());
-				label.setForeground(new Color(255, 215, 0));
-				label.setFont(label.getFont().deriveFont(Font.BOLD));
-				label.setToolTipText(pull.getItemName());
-			}
-			else
-			{
-				label = new JLabel((pull.isNew() ? "NEW " : "") + pull.getItemName());
-				label.setForeground(pull.getTier().getColor());
-				if (pull.isNew())
-				{
-					label.setFont(label.getFont().deriveFont(Font.BOLD));
-				}
-				label.setToolTipText(pull.getItemName() + " [" + pull.getTier().getLabel() + "]"
-					+ (pull.isNew() ? " — NEW" : " — duplicate"));
-			}
-			row.add(label, BorderLayout.CENTER);
-			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
-			packsContent.add(row);
-			packsContent.add(Box.createVerticalStrut(2));
-		}
-	}
-
-	// ---- Progress / chunks ----
-
-	private void rebuildProgress()
-	{
-		progressContent.removeAll();
-		if (!state.isLoaded())
-		{
-			progressContent.add(infoLabel("Log in to see progression."));
-			return;
-		}
-
-		int[] completion = state.completion();
-		int pct = completion[1] == 0 ? 100 : completion[0] * 100 / completion[1];
-		progressContent.add(header("Zones unlocked: " + state.getUnlockedChunks().size()));
-		progressContent.add(infoLabel("Cards pulled: " + completion[0] + "/" + completion[1] + " (" + pct + "%)"));
-		progressContent.add(infoLabel("Credits: " + state.getCredits()));
+		zonesContent.add(header("Zone tokens: " + state.getZoneTokens()));
+		zonesContent.add(infoLabel("Reach " + config.thresholdPercent()
+			+ "% of a zone's points for a token. 100% the zone for a bonus token. "
+			+ "Spend tokens on any frontier zone below."));
 		if (state.getViolations() > 0)
 		{
 			JLabel v = infoLabel("Violations: " + state.getViolations());
 			v.setForeground(new Color(255, 90, 90));
-			progressContent.add(v);
+			zonesContent.add(v);
 		}
-		progressContent.add(Box.createVerticalStrut(8));
+		zonesContent.add(Box.createVerticalStrut(8));
+
+		zonesContent.add(header("Your zones"));
+		List<Integer> unlockedSorted = new ArrayList<>(state.getUnlockedChunks());
+		unlockedSorted.sort(Comparator.naturalOrder());
+		for (int id : unlockedSorted)
+		{
+			int[] pts = state.zonePoints(id);
+			int claims = state.claimsOf(id);
+			String status;
+			Color color;
+			if (pts[1] == 0)
+			{
+				status = "no mobs sighted yet";
+				color = ColorScheme.MEDIUM_GRAY_COLOR;
+			}
+			else
+			{
+				int pct = pts[0] * 100 / pts[1];
+				status = pts[0] + "/" + pts[1] + " pts (" + pct + "%)"
+					+ ((claims & TcgStateService.CLAIM_THRESHOLD) != 0 ? " ✔" : "")
+					+ ((claims & TcgStateService.CLAIM_FULL) != 0 ? " ★" : "");
+				color = (claims & TcgStateService.CLAIM_FULL) != 0
+					? new Color(255, 215, 0)
+					: (claims & TcgStateService.CLAIM_THRESHOLD) != 0
+					? new Color(94, 204, 94) : Color.WHITE;
+			}
+			JLabel row = new JLabel("Zone " + zones.describe(id) + "  " + status);
+			row.setForeground(color);
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
+			zonesContent.add(row);
+			zonesContent.add(Box.createVerticalStrut(2));
+		}
+		zonesContent.add(Box.createVerticalStrut(8));
 
 		List<Integer> frontier = new ArrayList<>(state.frontier());
-		progressContent.add(header("Frontier zones: " + frontier.size()));
-		progressContent.add(infoLabel("Zones unlock ONLY by pulling zone cards from packs. "
-			+ frontier.size() + " zone cards are mixed into the pool (~" + packs.zoneCardPercent()
-			+ "% per card). Which one you get is up to fate."));
-		progressContent.add(Box.createVerticalStrut(4));
-
+		zonesContent.add(header("Frontier zones: " + frontier.size()));
 		WorldPoint pos = playerPos.get();
 		if (pos != null)
 		{
@@ -489,7 +328,7 @@ public class ChunkTcgPanel extends PluginPanel
 		{
 			if (shown++ >= 12)
 			{
-				progressContent.add(infoLabel("... and " + (frontier.size() - 12) + " more"));
+				zonesContent.add(infoLabel("... and " + (frontier.size() - 12) + " more"));
 				break;
 			}
 			JPanel row = new JPanel(new BorderLayout(4, 0));
@@ -506,8 +345,26 @@ public class ChunkTcgPanel extends PluginPanel
 			JLabel label = new JLabel(desc);
 			label.setForeground(Color.WHITE);
 			row.add(label, BorderLayout.CENTER);
-			progressContent.add(row);
-			progressContent.add(Box.createVerticalStrut(2));
+
+			JButton unlock = new JButton("Unlock");
+			unlock.setEnabled(state.getZoneTokens() > 0);
+			unlock.addActionListener(e ->
+			{
+				String err = state.tryUnlock(id);
+				if (err != null)
+				{
+					label.setText(err);
+					label.setForeground(new Color(255, 90, 90));
+				}
+				else
+				{
+					unlockNotifier.accept(id);
+					refresh();
+				}
+			});
+			row.add(unlock, BorderLayout.EAST);
+			zonesContent.add(row);
+			zonesContent.add(Box.createVerticalStrut(2));
 		}
 	}
 

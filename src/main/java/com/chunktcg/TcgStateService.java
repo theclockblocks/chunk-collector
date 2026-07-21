@@ -3,9 +3,6 @@ package com.chunktcg;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -19,9 +16,9 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.config.ConfigManager;
 
 /**
- * All per-character progression state: unlocked chunks, discovered NPCs,
- * card collection, credits, violations. Persisted to the RS profile config
- * so each character has its own run.
+ * All per-character progression state: unlocked zones, discovered NPCs,
+ * collected drop-table items, zone tokens. Persisted to the RS profile
+ * config so each character has its own run.
  */
 @Slf4j
 @Singleton
@@ -29,12 +26,15 @@ public class TcgStateService
 {
 	private static final String KEY_UNLOCKED = "unlockedChunksState";
 	private static final String KEY_DISCOVERED = "discoveredNpcs";
-	private static final String KEY_CARDS = "cards";
-	private static final String KEY_CREDITS = "credits";
+	private static final String KEY_COLLECTED = "cards";
 	private static final String KEY_VIOLATIONS = "violations";
-	private static final String KEY_PURCHASES = "chunkPurchases";
+	private static final String KEY_TOKENS = "zoneTokens";
+	private static final String KEY_CLAIMS = "zoneClaims";
 	private static final String KEY_ZONE_MODE = "zoneMode";
-	private static final String KEY_STARTER_PACKS = "starterPacksOpened";
+
+	/** Claim bitmask per zone. */
+	public static final int CLAIM_THRESHOLD = 1;
+	public static final int CLAIM_FULL = 2;
 
 	@Inject
 	private ConfigManager configManager;
@@ -55,25 +55,23 @@ public class TcgStateService
 	@Getter
 	private final Set<Integer> unlockedChunks = ConcurrentHashMap.newKeySet();
 
-	/** chunkId -> NPC names discovered (killed) there. */
+	/** chunkId -> NPC names discovered (sighted/killed) there. */
 	@Getter
 	private final Map<Integer, Set<String>> discovered = new ConcurrentHashMap<>();
 
-	/** lower item name -> card. */
+	/** lower item name -> collected item entry. */
 	@Getter
-	private final Map<String, CardEntry> cards = new ConcurrentHashMap<>();
+	private final Map<String, CardEntry> collected = new ConcurrentHashMap<>();
+
+	/** zoneId -> claim bitmask (threshold reached / 100% completed). */
+	@Getter
+	private final Map<Integer, Integer> zoneClaims = new ConcurrentHashMap<>();
 
 	@Getter
-	private int credits;
+	private int zoneTokens;
 
 	@Getter
 	private int violations;
-
-	@Getter
-	private int chunkPurchases;
-
-	@Getter
-	private int starterPacksOpened;
 
 	@Getter
 	private boolean loaded;
@@ -84,10 +82,10 @@ public class TcgStateService
 	{
 		unlockedChunks.clear();
 		discovered.clear();
-		cards.clear();
-		credits = 0;
+		collected.clear();
+		zoneClaims.clear();
+		zoneTokens = 0;
 		violations = 0;
-		chunkPurchases = 0;
 
 		// Zone ids are only meaningful at the granularity they were saved at —
 		// only trust them when the saved mode marker matches the current setting
@@ -116,7 +114,7 @@ public class TcgStateService
 		}
 
 		String discoveredJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_DISCOVERED);
-		if (discoveredJson != null && !discoveredJson.isEmpty())
+		if (!modeChanged && discoveredJson != null && !discoveredJson.isEmpty())
 		{
 			Type t = new TypeToken<Map<Integer, Set<String>>>()
 			{
@@ -133,25 +131,37 @@ public class TcgStateService
 			}
 		}
 
-		String cardsJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CARDS);
-		if (cardsJson != null && !cardsJson.isEmpty())
+		String collectedJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_COLLECTED);
+		if (collectedJson != null && !collectedJson.isEmpty())
 		{
 			Type t = new TypeToken<Map<String, CardEntry>>()
 			{
 			}.getType();
-			Map<String, CardEntry> saved = gson.fromJson(cardsJson, t);
+			Map<String, CardEntry> saved = gson.fromJson(collectedJson, t);
 			if (saved != null)
 			{
-				cards.putAll(saved);
+				collected.putAll(saved);
 			}
 		}
 
-		credits = getIntKey(KEY_CREDITS);
+		String claimsJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CLAIMS);
+		if (!modeChanged && claimsJson != null && !claimsJson.isEmpty())
+		{
+			Type t = new TypeToken<Map<Integer, Integer>>()
+			{
+			}.getType();
+			Map<Integer, Integer> saved = gson.fromJson(claimsJson, t);
+			if (saved != null)
+			{
+				zoneClaims.putAll(saved);
+			}
+		}
+
+		zoneTokens = getIntKey(KEY_TOKENS);
 		violations = getIntKey(KEY_VIOLATIONS);
-		chunkPurchases = getIntKey(KEY_PURCHASES);
-		starterPacksOpened = getIntKey(KEY_STARTER_PACKS);
 		loaded = true;
-		log.debug("Loaded state: {} chunks, {} cards, {} credits", unlockedChunks.size(), cards.size(), credits);
+		log.debug("Loaded state: {} zones, {} items collected, {} tokens",
+			unlockedChunks.size(), collected.size(), zoneTokens);
 	}
 
 	public void unload()
@@ -180,23 +190,11 @@ public class TcgStateService
 		}
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_UNLOCKED, gson.toJson(unlockedChunks));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_DISCOVERED, gson.toJson(discovered));
-		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CARDS, gson.toJson(cards));
-		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CREDITS, credits);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_COLLECTED, gson.toJson(collected));
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CLAIMS, gson.toJson(zoneClaims));
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_TOKENS, zoneTokens);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
-		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_PURCHASES, chunkPurchases);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_ZONE_MODE, config.zoneSize().name());
-		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_STARTER_PACKS, starterPacksOpened);
-	}
-
-	public void incrementStarterPacks()
-	{
-		starterPacksOpened++;
-		save();
-	}
-
-	public boolean starterComplete()
-	{
-		return starterPacksOpened >= config.starterPackCount();
 	}
 
 	/** Wipe this character's entire run and start fresh. */
@@ -204,36 +202,13 @@ public class TcgStateService
 	{
 		unlockedChunks.clear();
 		discovered.clear();
-		cards.clear();
-		credits = 0;
+		collected.clear();
+		zoneClaims.clear();
+		zoneTokens = 0;
 		violations = 0;
-		chunkPurchases = 0;
-		starterPacksOpened = 0;
 		unlockedChunks.addAll(parseStartingAreas());
 		save();
 		log.debug("Run reset");
-	}
-
-	/** Zone containing the first configured starting area — where starter mobs register. */
-	public int primaryZoneId()
-	{
-		for (String pair : config.startingAreas().split(";"))
-		{
-			String[] xy = pair.trim().split(",");
-			if (xy.length != 2)
-			{
-				continue;
-			}
-			try
-			{
-				return zones.fromWorld(Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
-			}
-			catch (NumberFormatException e)
-			{
-				// try next pair
-			}
-		}
-		return zones.fromWorld(3222, 3218);
 	}
 
 	private Set<Integer> parseStartingAreas()
@@ -263,14 +238,36 @@ public class TcgStateService
 		return out;
 	}
 
-	// ---- chunk state ----
+	/** Zone containing the first configured starting area — where starter mobs seed. */
+	public int primaryZoneId()
+	{
+		for (String pair : config.startingAreas().split(";"))
+		{
+			String[] xy = pair.trim().split(",");
+			if (xy.length != 2)
+			{
+				continue;
+			}
+			try
+			{
+				return zones.fromWorld(Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
+			}
+			catch (NumberFormatException e)
+			{
+				// try next pair
+			}
+		}
+		return zones.fromWorld(3222, 3218);
+	}
+
+	// ---- zone state ----
 
 	public boolean isUnlocked(int chunkId)
 	{
 		return unlockedChunks.contains(chunkId);
 	}
 
-	/** Locked chunks orthogonally adjacent to an unlocked chunk. */
+	/** Locked zones orthogonally adjacent to an unlocked zone. */
 	public Set<Integer> frontier()
 	{
 		Set<Integer> out = new TreeSet<>();
@@ -291,6 +288,27 @@ public class TcgStateService
 		return out;
 	}
 
+	/** Spend a zone token to unlock a frontier zone. Returns null on success, else a reason. */
+	public String tryUnlock(int chunkId)
+	{
+		if (isUnlocked(chunkId))
+		{
+			return "Zone already unlocked";
+		}
+		if (!frontier().contains(chunkId))
+		{
+			return "Zone is not adjacent to your unlocked area";
+		}
+		if (zoneTokens <= 0)
+		{
+			return "No zone tokens — hit a zone's point threshold to earn one";
+		}
+		zoneTokens--;
+		unlockedChunks.add(chunkId);
+		save();
+		return null;
+	}
+
 	// ---- collection ----
 
 	public Set<String> allDiscoveredNpcs()
@@ -303,7 +321,7 @@ public class TcgStateService
 		return out;
 	}
 
-	/** true if this NPC was newly discovered for the chunk. */
+	/** true if this NPC was newly discovered for the zone. */
 	public boolean discoverNpc(int chunkId, String npcName)
 	{
 		boolean added = discovered.computeIfAbsent(chunkId, k -> ConcurrentHashMap.newKeySet()).add(npcName);
@@ -314,15 +332,15 @@ public class TcgStateService
 		return added;
 	}
 
-	/** Award a card by item. Returns true if it's a brand new card. */
-	public boolean awardCard(String itemName, int itemId)
+	/** Record a collected drop. Returns true if it's a brand new collection entry. */
+	public boolean collectItem(String itemName, int itemId)
 	{
 		String key = WikiDropsService.normalize(itemName);
-		CardEntry entry = cards.get(key);
+		CardEntry entry = collected.get(key);
 		boolean isNew = entry == null;
 		if (isNew)
 		{
-			cards.put(key, new CardEntry(itemName, itemId, 1));
+			collected.put(key, new CardEntry(itemName, itemId, 1));
 		}
 		else
 		{
@@ -336,10 +354,9 @@ public class TcgStateService
 		return isNew;
 	}
 
-	public void addCredits(int amount)
+	public boolean isCollected(String itemName)
 	{
-		credits = Math.max(0, credits + amount);
-		save();
+		return collected.containsKey(WikiDropsService.normalize(itemName));
 	}
 
 	public void addViolation()
@@ -348,108 +365,95 @@ public class TcgStateService
 		save();
 	}
 
-	/** Sell every duplicate copy (count above 1). Returns credits gained. */
-	public int sellAllDupes()
-	{
-		Collection<String> npcs = allDiscoveredNpcs();
-		int gained = 0;
-		for (CardEntry entry : cards.values())
-		{
-			int dupes = entry.getCount() - 1;
-			if (dupes <= 0)
-			{
-				continue;
-			}
-			RarityTier tier = drops.tierFor(entry.getName(), npcs);
-			gained += dupes * tier.getSellValue();
-			entry.setCount(1);
-		}
-		if (gained > 0)
-		{
-			credits += gained;
-			save();
-		}
-		return gained;
-	}
+	// ---- points & tokens ----
 
-	// ---- progression ----
-
-	/** [ownedUnique, totalUnique] over the union of discovered NPCs' drop tables. */
-	public int[] completion()
+	public int pointsFor(RarityTier tier)
 	{
-		Map<String, Drop> union = drops.unionDrops(allDiscoveredNpcs());
-		int owned = 0;
-		for (String key : union.keySet())
+		switch (tier)
 		{
-			if (cards.containsKey(key))
-			{
-				owned++;
-			}
-		}
-		return new int[]{owned, union.size()};
-	}
-
-	/** Unlock a zone (from a zone card pull). */
-	public void unlockZone(int chunkId)
-	{
-		if (unlockedChunks.add(chunkId))
-		{
-			chunkPurchases++;
-			save();
+			case UNCOMMON:
+				return config.pointsUncommon();
+			case RARE:
+				return config.pointsRare();
+			case EPIC:
+				return config.pointsEpic();
+			case LEGENDARY:
+				return config.pointsLegendary();
+			case COMMON:
+			default:
+				return config.pointsCommon();
 		}
 	}
 
 	/**
-	 * A mob is fightable once you own at least one card from its drop table.
-	 * Mobs with no drop table at all (ducks...) are free — nothing to collect.
+	 * [earnedPoints, totalPoints] for a zone: the union of drop tables of NPCs
+	 * discovered in that zone, valued by rarity, scored by what you've collected.
 	 */
-	public boolean isMobUnlocked(String npcName)
+	public int[] zonePoints(int chunkId)
 	{
-		List<Drop> table = drops.get(npcName);
-		if (table == null || table.isEmpty())
+		Set<String> npcs = discovered.get(chunkId);
+		if (npcs == null || npcs.isEmpty())
 		{
-			return true;
+			return new int[]{0, 0};
 		}
-		for (Drop d : table)
+		Map<String, Drop> union = drops.unionDrops(npcs);
+		int earned = 0;
+		int total = 0;
+		for (Map.Entry<String, Drop> e : union.entrySet())
 		{
-			if (cards.containsKey(WikiDropsService.normalize(d.getItemName())))
+			int pts = pointsFor(e.getValue().tier());
+			total += pts;
+			if (collected.containsKey(e.getKey()))
 			{
-				return true;
+				earned += pts;
 			}
 		}
-		return false;
+		return new int[]{earned, total};
 	}
 
-	/** An item is usable if it was pulled from a pack or matches an always-unlocked prefix. */
-	public boolean isItemUnlocked(String itemName)
+	public int claimsOf(int chunkId)
 	{
-		if (itemName == null)
-		{
-			return true;
-		}
-		String key = WikiDropsService.normalize(itemName);
-		if (cards.containsKey(key))
-		{
-			return true;
-		}
-		for (String prefix : config.alwaysUnlocked().split(";"))
-		{
-			String p = WikiDropsService.normalize(prefix);
-			if (!p.isEmpty() && key.startsWith(p))
-			{
-				return true;
-			}
-		}
-		return false;
+		Integer c = zoneClaims.get(chunkId);
+		return c == null ? 0 : c;
 	}
 
-	/** Owned cards among a drop list, for per-NPC album progress. */
+	/**
+	 * Re-evaluate a zone's threshold / 100% claims after collecting something.
+	 * Returns a bitmask of NEWLY earned claims (each grants one zone token).
+	 */
+	public int evaluateZoneClaims(int chunkId)
+	{
+		int[] pts = zonePoints(chunkId);
+		if (pts[1] == 0)
+		{
+			return 0;
+		}
+		int claims = claimsOf(chunkId);
+		int newClaims = 0;
+		if ((claims & CLAIM_THRESHOLD) == 0 && pts[0] * 100 >= pts[1] * config.thresholdPercent())
+		{
+			newClaims |= CLAIM_THRESHOLD;
+		}
+		if ((claims & CLAIM_FULL) == 0 && pts[0] >= pts[1])
+		{
+			newClaims |= CLAIM_FULL;
+		}
+		if (newClaims != 0)
+		{
+			zoneClaims.put(chunkId, claims | newClaims);
+			zoneTokens += Integer.bitCount(newClaims);
+			save();
+		}
+		return newClaims;
+	}
+
+	/** Owned collection entries among a drop list, for per-NPC log progress. */
 	public int ownedOf(List<Drop> dropList)
 	{
 		int owned = 0;
 		for (Drop d : dropList)
 		{
-			if (cards.containsKey(WikiDropsService.normalize(d.getItemName())))
+			if (collected.containsKey(WikiDropsService.normalize(d.getItemName())))
 			{
 				owned++;
 			}

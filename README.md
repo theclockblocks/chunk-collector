@@ -1,34 +1,30 @@
-# Chunk TCG
+# Chunk Collector
 
-**Packs are life.** A RuneLite plugin that turns an OSRS account into a zone-locked,
-gacha-driven challenge run: the world is locked outside your starting zone, every item
-is locked until you pull its card from a booster pack, and even *map expansion* comes
-from pack pulls.
+A RuneLite plugin that turns an OSRS account into a **zone-locked collection-log
+challenge**: the world is locked outside your starting zone, and the only way to
+expand is to *complete the drop tables of the mobs that live in your zones*.
 
 ## The rules
 
-1. **Fresh start.** Finish tutorial island, spawn in Lumbridge, dump your inventory,
-   then enable the plugin. Nothing is unlocked — not even your bronze gear.
-2. **Starter packs.** You open 5 free starter packs drawn from your starting zone's
-   mobs (Goblin, Man, Giant spider by default) plus a curated basics pool (bronze
-   tools, basic food, runes). Fate decides what kind of adventurer you become.
-3. **Cards from packs only.** Drops never award cards. Killing an NPC in an unlocked
-   zone *discovers* it — its whole drop table joins the pack pool — but the cards
-   themselves only come from packs.
-4. **Credits buy packs.** Kills in unlocked zones pay credits (base + combat level/10),
-   level-ups pay 50 each, and duplicate cards can be sold. 100 credits = one 5-card pack.
-5. **Items are locked** until you pull their card: grayed out in inventory/equipment/
-   bank, Wield/Wear/Eat/Drink removed from menus, and shop **Buy is blocked**
-   (bronzeman-style).
-6. **Zones are locked** (64×64 map regions by default, 8×8 chunks for hardcore).
-   Clicking NPCs, objects or ground items inside locked zones is cancelled outright.
-   Walking through is allowed for traversal.
-7. **Zone cards.** Every zone adjacent to your unlocked area is a card mixed into the
-   pack pool (~7% per pull by default). Pull one and a random frontier zone unlocks.
-   More zones → more frontier → more ways for fate to move you.
+1. **Fresh start.** Spawn in Lumbridge; only your starting zone (64×64 map region
+   by default, 8×8 chunks for hardcore) is unlocked.
+2. **Sighting builds the log.** Combat NPCs you see in unlocked zones register
+   Pokédex-style — their full drop table (from the OSRS Wiki) becomes part of that
+   zone's collection log.
+3. **Drops score points.** Each drop-table item has a point value by rarity
+   (Common 1, Uncommon 3, Rare 8, Epic 20, Legendary 50 — all configurable). The
+   first time you receive an item as a drop in an unlocked zone, it's collected.
+4. **Thresholds earn zone tokens.** Reach the zone's point threshold (default 50%
+   of its total points) and you earn a **zone token**. 100%-ing a zone earns a
+   **bonus token**. Completionism literally buys map.
+5. **You choose where to go.** Spend tokens on any *frontier* zone (adjacent to
+   your unlocked area) from the panel — expansion is earned, direction is yours.
+6. **Enforcement.** Locked zones are shaded in the scene and on the world map;
+   clicks on NPCs, objects and ground items inside them are cancelled outright
+   (walking through is allowed). Kills in locked zones are logged violations and
+   award nothing.
 
-Rarity tiers (Common → Legendary) come from real OSRS Wiki drop rates, fetched live
-and cached. Progress is saved per character; a **Reset run** toggle wipes it.
+Progress is saved per character; a **Reset run** config toggle wipes it.
 
 ## Running it
 
@@ -45,21 +41,19 @@ plugin loaded. Jagex accounts: follow
 
 ## Credits & inspiration
 
-Chunk TCG stands on the shoulders of these excellent plugins — go star them:
+Chunk Collector stands on the shoulders of these excellent plugins — go star them:
 
-- **[OSRS TCG](https://github.com/Azderi/osrs-tcg)** by Azderi (BSD-2-Clause) — the
-  card-collecting concept: credits earned by playing, booster packs, rarity tiers,
-  collection album. Chunk TCG's card economy is directly inspired by it.
 - **[Region Locker](https://github.com/slaytostay/region-locker)** by slaytostay
   (BSD-2-Clause) — region/chunk-locked account tooling; the zone shading concept.
-- **[Bronzeman Mode](https://github.com/sethrem/bronzeman)** by sethrem (MIT) — the
-  item-unlock philosophy, unlock splash notification, and Grand Exchange restriction.
 - **[Hold Your Ground](https://github.com/skeldoor/hold-your-ground)** by skeldoor
   (BSD-2-Clause) — click-blocking enforcement for boundary-restricted accounts.
+- **[Bronzeman Mode](https://github.com/sethrem/bronzeman)** by sethrem (MIT) — the
+  unlock-splash notification style.
+- **[OSRS TCG](https://github.com/Azderi/osrs-tcg)** by Azderi (BSD-2-Clause) —
+  an earlier iteration of this plugin was a full card-game hybrid inspired by it
+  (preserved at git tag `v0.1-tcg`).
 - **[Chunk Picker](https://source-chunk.github.io/chunk-picker-v2/)** and the chunk-locked
   community (Limpwurt et al.) for the genre itself.
-- **[Archipelago](https://archipelago.gg)** for the randomizer philosophy: progression
-  gated behind randomized unlocks.
 - Drop data: **[Old School RuneScape Wiki](https://oldschool.runescape.wiki)** (CC BY-NC-SA 3.0).
 - Built from the [runelite/example-plugin](https://github.com/runelite/example-plugin)
   template (BSD-2-Clause).
