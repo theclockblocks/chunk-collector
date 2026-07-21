@@ -228,6 +228,12 @@ public class WikiDropsService
 			{
 				continue;
 			}
+			// "Nothing" is the wiki's empty-roll marker — not collectable,
+			// and it would make 100% completion impossible
+			if (name.equalsIgnoreCase("Nothing"))
+			{
+				continue;
+			}
 			double rate = parseRarity(rarity);
 			String nkey = normalize(name);
 			// Keep the highest (easiest) rate if the same item appears on multiple lines

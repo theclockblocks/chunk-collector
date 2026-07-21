@@ -33,6 +33,16 @@ public class WikiDropsParseTest
 	}
 
 	@Test
+	public void skipsNothingEntries()
+	{
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"{{DropsLine|name=Nothing|rarity=1/2}}\n"
+				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}");
+		assertEquals(1, drops.size());
+		assertEquals("Bones", drops.get(0).getItemName());
+	}
+
+	@Test
 	public void keepsHighestRateForDuplicates()
 	{
 		List<Drop> drops = WikiDropsService.parseWikitext(
