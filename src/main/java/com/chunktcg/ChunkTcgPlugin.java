@@ -520,14 +520,25 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		List<String> regionIds = new ArrayList<>();
+		List<String> unlockedIds = new ArrayList<>();
 		for (int zoneId : state.getUnlockedChunks())
 		{
-			regionIds.add(String.valueOf(zones.rsRegionId(zoneId)));
+			unlockedIds.add(String.valueOf(zones.rsRegionId(zoneId)));
 		}
-		regionIds.sort(Comparator.naturalOrder());
-		configManager.setConfiguration("regionlocker", "unlockedRegions", String.join(",", regionIds));
-		log.debug("Synced {} regions to Region Locker", regionIds.size());
+		unlockedIds.sort(Comparator.naturalOrder());
+		configManager.setConfiguration("regionlocker", "unlockedRegions", String.join(",", unlockedIds));
+
+		// Frontier zones become Region Locker's "unlockable" regions, so its
+		// terrain-following borders and map colours show where you can expand
+		List<String> frontierIds = new ArrayList<>();
+		for (int zoneId : state.frontier())
+		{
+			frontierIds.add(String.valueOf(zones.rsRegionId(zoneId)));
+		}
+		frontierIds.sort(Comparator.naturalOrder());
+		configManager.setConfiguration("regionlocker", "unlockableRegions", String.join(",", frontierIds));
+		log.debug("Synced {} unlocked + {} frontier regions to Region Locker",
+			unlockedIds.size(), frontierIds.size());
 	}
 
 	private void refreshPanel()
