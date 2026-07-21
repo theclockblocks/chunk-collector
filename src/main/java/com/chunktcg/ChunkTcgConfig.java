@@ -1,7 +1,5 @@
 package com.chunktcg;
 
-import java.awt.Color;
-import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -30,7 +28,7 @@ public interface ChunkTcgConfig extends Config
 
 	@ConfigSection(
 		name = "Display",
-		description = "Overlay appearance",
+		description = "Zone rendering — install the Region Locker hub plugin for visuals",
 		position = 2
 	)
 	String display = "display";
@@ -60,29 +58,17 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "starterMobs",
-		name = "Starting zone mobs",
-		description = "Killable NPCs in your starting zone, separated by semicolons. Seeded into the collection log at the start of a run (sighting discovers everything else).",
-		section = progression,
-		position = 2
-	)
-	default String starterMobs()
-	{
-		return "Goblin;Man;Giant spider";
-	}
-
-	@ConfigItem(
 		keyName = "thresholdPercent",
 		name = "Zone threshold",
 		description = "Percentage of a zone's total collection points needed to earn its zone token (spend tokens to unlock a frontier zone of your choice)",
 		section = progression,
-		position = 3
+		position = 2
 	)
 	@Range(min = 1, max = 100)
 	@Units(Units.PERCENT)
 	default int thresholdPercent()
 	{
-		return 50;
+		return 80;
 	}
 
 	@ConfigItem(
@@ -90,7 +76,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Block locked-zone interactions",
 		description = "Clicks on NPCs, objects and ground items inside locked zones are cancelled outright (hold-your-ground style). Walking through locked zones stays allowed.",
 		section = progression,
-		position = 4
+		position = 3
 	)
 	default boolean blockZoneInteractions()
 	{
@@ -102,7 +88,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Warn entering locked zone",
 		description = "Show a chat warning when you walk into a locked zone",
 		section = progression,
-		position = 5
+		position = 4
 	)
 	default boolean warnOnEnterLocked()
 	{
@@ -114,7 +100,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Reset run",
 		description = "DANGER: turning this on wipes this character's entire run — zones, collection, tokens — and starts fresh. The toggle switches itself back off.",
 		section = progression,
-		position = 6
+		position = 5
 	)
 	default boolean resetRun()
 	{
@@ -181,77 +167,14 @@ public interface ChunkTcgConfig extends Config
 		return 50;
 	}
 
-	@Alpha
-	@ConfigItem(
-		keyName = "lockedColor",
-		name = "Locked zone shade",
-		description = "Fill colour for locked zones in the scene and on the world map",
-		section = display,
-		position = 0
-	)
-	default Color lockedColor()
-	{
-		return new Color(0, 0, 0, 110);
-	}
-
-	@Alpha
-	@ConfigItem(
-		keyName = "frontierColor",
-		name = "Frontier border",
-		description = "Border colour for zones adjacent to your unlocked area (candidates for unlocking)",
-		section = display,
-		position = 1
-	)
-	default Color frontierColor()
-	{
-		return new Color(255, 200, 0, 200);
-	}
-
-	@Alpha
-	@ConfigItem(
-		keyName = "unlockedBorderColor",
-		name = "Unlocked border",
-		description = "Border colour drawn around your unlocked zones",
-		section = display,
-		position = 2
-	)
-	default Color unlockedBorderColor()
-	{
-		return new Color(0, 255, 120, 140);
-	}
-
 	@ConfigItem(
 		keyName = "syncRegionLocker",
 		name = "Sync to Region Locker",
-		description = "Write unlocked zones into the Region Locker plugin's unlocked-regions list, so its polished shading renders your zones. Requires 64x64 zone size and the Region Locker hub plugin installed. WARNING: overwrites Region Locker's own unlocked list.",
+		description = "Write unlocked zones and frontier zones into the Region Locker plugin's region lists, so its terrain-hugging borders and shading render your world. Requires 64x64 zone size and the Region Locker hub plugin installed. WARNING: overwrites Region Locker's own region lists.",
 		section = display,
-		position = 3
+		position = 0
 	)
 	default boolean syncRegionLocker()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "shadeScene",
-		name = "Shade locked zones in scene",
-		description = "Draw this plugin's own translucent shade over locked zones in the 3D scene (turn OFF when using Region Locker for visuals)",
-		section = display,
-		position = 4
-	)
-	default boolean shadeScene()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "showWorldMap",
-		name = "Shade world map",
-		description = "Shade locked zones on the world map with this plugin's own overlay (turn OFF when using Region Locker for visuals)",
-		section = display,
-		position = 5
-	)
-	default boolean showWorldMap()
 	{
 		return true;
 	}

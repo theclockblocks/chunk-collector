@@ -14,15 +14,19 @@ expand is to *complete the drop tables of the mobs that live in your zones*.
 3. **Drops score points.** Each drop-table item has a point value by rarity
    (Common 1, Uncommon 3, Rare 8, Epic 20, Legendary 50 — all configurable). The
    first time you receive an item as a drop in an unlocked zone, it's collected.
-4. **Thresholds earn zone tokens.** Reach the zone's point threshold (default 50%
+4. **Thresholds earn zone tokens.** Reach the zone's point threshold (default 80%
    of its total points) and you earn a **zone token**. 100%-ing a zone earns a
    **bonus token**. Completionism literally buys map.
 5. **You choose where to go.** Spend tokens on any *frontier* zone (adjacent to
    your unlocked area) from the panel — expansion is earned, direction is yours.
-6. **Enforcement.** Locked zones are shaded in the scene and on the world map;
-   clicks on NPCs, objects and ground items inside them are cancelled outright
-   (walking through is allowed). Kills in locked zones are logged violations and
-   award nothing.
+6. **Enforcement.** Clicks on NPCs, objects and ground items inside locked zones
+   are cancelled outright (walking through is allowed). Kills in locked zones are
+   logged violations and award nothing.
+7. **Visuals: install [Region Locker](https://runelite.net/plugin-hub/show/region-locker)**
+   from the Plugin Hub. Chunk Collector automatically mirrors your unlocked and
+   frontier zones into it, so its terrain-hugging borders and shading render your
+   world (enable the GPU plugin for the gray-out effect). Chunk Collector draws
+   no zone overlays of its own.
 
 Progress is saved per character; a **Reset run** config toggle wipes it.
 

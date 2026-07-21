@@ -238,28 +238,6 @@ public class TcgStateService
 		return out;
 	}
 
-	/** Zone containing the first configured starting area — where starter mobs seed. */
-	public int primaryZoneId()
-	{
-		for (String pair : config.startingAreas().split(";"))
-		{
-			String[] xy = pair.trim().split(",");
-			if (xy.length != 2)
-			{
-				continue;
-			}
-			try
-			{
-				return zones.fromWorld(Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
-			}
-			catch (NumberFormatException e)
-			{
-				// try next pair
-			}
-		}
-		return zones.fromWorld(3222, 3218);
-	}
-
 	// ---- zone state ----
 
 	public boolean isUnlocked(int chunkId)

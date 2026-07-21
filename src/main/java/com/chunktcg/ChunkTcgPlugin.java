@@ -1,8 +1,6 @@
 package com.chunktcg;
 
 import com.chunktcg.overlay.CardToastOverlay;
-import com.chunktcg.overlay.ChunkSceneOverlay;
-import com.chunktcg.overlay.ChunkWorldMapOverlay;
 import com.chunktcg.panel.ChunkTcgPanel;
 import com.google.inject.Provides;
 import java.awt.BasicStroke;
@@ -79,12 +77,6 @@ public class ChunkTcgPlugin extends Plugin
 	private OverlayManager overlayManager;
 
 	@Inject
-	private ChunkSceneOverlay sceneOverlay;
-
-	@Inject
-	private ChunkWorldMapOverlay worldMapOverlay;
-
-	@Inject
 	private CardToastOverlay toastOverlay;
 
 	@Inject
@@ -100,8 +92,6 @@ public class ChunkTcgPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		overlayManager.add(sceneOverlay);
-		overlayManager.add(worldMapOverlay);
 		overlayManager.add(toastOverlay);
 
 		panel = new ChunkTcgPanel(state, drops, config, itemManager, zones,
@@ -126,8 +116,6 @@ public class ChunkTcgPlugin extends Plugin
 	@Override
 	protected void shutDown()
 	{
-		overlayManager.remove(sceneOverlay);
-		overlayManager.remove(worldMapOverlay);
 		overlayManager.remove(toastOverlay);
 		clientToolbar.removeNavigation(navButton);
 		state.unload();
@@ -484,17 +472,9 @@ public class ChunkTcgPlugin extends Plugin
 		}
 	}
 
-	/** Seed the starting zone's mobs and warm all discovered drop tables. */
+	/** Warm all discovered drop tables and mirror zones to Region Locker. */
 	private void seedAndPrefetch()
 	{
-		int primary = state.primaryZoneId();
-		for (String mob : config.starterMobs().split(";"))
-		{
-			if (!mob.trim().isEmpty())
-			{
-				state.discoverNpc(primary, mob.trim());
-			}
-		}
 		for (String npc : state.allDiscoveredNpcs())
 		{
 			drops.ensureFetched(npc, this::refreshPanel);
