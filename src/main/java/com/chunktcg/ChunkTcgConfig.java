@@ -58,11 +58,23 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "runGoal",
+		keyName = "runGoalPreset",
 		name = "Run goal",
-		description = "Your win condition, in your own words (e.g. 'Quest Cape', 'Defeat Jad', '25 zones'). Set it BEFORE your first drop — it locks in for the whole run and shows on the panel. Mark it complete from the Zones tab when you get there.",
+		description = "Your win condition — classic locked-run goals from the community, or Custom to write your own below. Set it BEFORE your first drop; it locks in for the whole run.",
 		section = progression,
 		position = 2
+	)
+	default RunGoalPreset runGoalPreset()
+	{
+		return RunGoalPreset.CUSTOM;
+	}
+
+	@ConfigItem(
+		keyName = "runGoal",
+		name = "Custom goal",
+		description = "Used when Run goal is set to Custom: your win condition in your own words. Empty = no goal.",
+		section = progression,
+		position = 3
 	)
 	default String runGoal()
 	{
@@ -74,7 +86,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Challenges per bonus token",
 		description = "Completing this many community challenges earns a bonus zone token. 0 disables challenge tokens.",
 		section = progression,
-		position = 3
+		position = 4
 	)
 	@Range(min = 0, max = 50)
 	default int challengesPerToken()
@@ -87,7 +99,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Zone threshold",
 		description = "Percentage of a zone's total collection points needed to earn its zone token. Set this BEFORE your first drop — it locks in for the whole run once the first item is logged.",
 		section = progression,
-		position = 4
+		position = 5
 	)
 	@Range(min = 1, max = 100)
 	@Units(Units.PERCENT)
@@ -101,7 +113,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Block locked-zone interactions",
 		description = "Clicks on NPCs, objects and ground items inside locked zones are cancelled outright (hold-your-ground style). Walking through locked zones stays allowed.",
 		section = progression,
-		position = 5
+		position = 6
 	)
 	default boolean blockZoneInteractions()
 	{
@@ -113,7 +125,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Warn entering locked zone",
 		description = "Show a chat warning when you walk into a locked zone",
 		section = progression,
-		position = 6
+		position = 7
 	)
 	default boolean warnOnEnterLocked()
 	{
@@ -125,7 +137,7 @@ public interface ChunkTcgConfig extends Config
 		name = "Reset run (type: reset)",
 		description = "DANGER: type the word reset into this field to wipe this character's entire run — zones, collection, tokens, locked threshold and goal. The field clears itself afterwards.",
 		section = progression,
-		position = 7
+		position = 8
 	)
 	default String resetConfirm()
 	{

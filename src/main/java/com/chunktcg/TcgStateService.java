@@ -302,6 +302,16 @@ public class TcgStateService
 		{
 			return lockedGoal == null ? "" : lockedGoal;
 		}
+		return resolveConfiguredGoal();
+	}
+
+	private String resolveConfiguredGoal()
+	{
+		RunGoalPreset preset = config.runGoalPreset();
+		if (preset != null && preset != RunGoalPreset.CUSTOM)
+		{
+			return preset.getLabel();
+		}
 		String g = config.runGoal();
 		return g == null ? "" : g.trim();
 	}
@@ -476,7 +486,7 @@ public class TcgStateService
 		if (lockedThreshold == 0)
 		{
 			lockedThreshold = config.thresholdPercent();
-			lockedGoal = config.runGoal() == null ? "" : config.runGoal().trim();
+			lockedGoal = resolveConfiguredGoal();
 		}
 		String key = collectionKey(zoneId, mobName, itemName);
 		CardEntry entry = collected.get(key);
