@@ -221,11 +221,23 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "shadeScene",
-		name = "Shade locked zones in scene",
-		description = "Draw a translucent shade over locked zones in the 3D scene",
+		keyName = "syncRegionLocker",
+		name = "Sync to Region Locker",
+		description = "Write unlocked zones into the Region Locker plugin's unlocked-regions list, so its polished shading renders your zones. Requires 64x64 zone size and the Region Locker hub plugin installed. WARNING: overwrites Region Locker's own unlocked list.",
 		section = display,
 		position = 3
+	)
+	default boolean syncRegionLocker()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "shadeScene",
+		name = "Shade locked zones in scene",
+		description = "Draw this plugin's own translucent shade over locked zones in the 3D scene (turn OFF when using Region Locker for visuals)",
+		section = display,
+		position = 4
 	)
 	default boolean shadeScene()
 	{
@@ -235,9 +247,9 @@ public interface ChunkTcgConfig extends Config
 	@ConfigItem(
 		keyName = "showWorldMap",
 		name = "Shade world map",
-		description = "Shade locked zones on the world map",
+		description = "Shade locked zones on the world map with this plugin's own overlay (turn OFF when using Region Locker for visuals)",
 		section = display,
-		position = 4
+		position = 5
 	)
 	default boolean showWorldMap()
 	{

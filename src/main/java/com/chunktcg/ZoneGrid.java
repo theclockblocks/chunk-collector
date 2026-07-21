@@ -60,4 +60,14 @@ public class ZoneGrid
 	{
 		return "(" + ChunkCoord.cx(id) + ", " + ChunkCoord.cy(id) + ")";
 	}
+
+	/**
+	 * RuneScape map-region id for a zone — only meaningful in REGION_64 mode,
+	 * where zones correspond 1:1 to map regions (e.g. Lumbridge = 12850).
+	 * Used to sync unlocks into the Region Locker plugin's config.
+	 */
+	public int rsRegionId(int id)
+	{
+		return (ChunkCoord.cx(id) << 8) | ChunkCoord.cy(id);
+	}
 }

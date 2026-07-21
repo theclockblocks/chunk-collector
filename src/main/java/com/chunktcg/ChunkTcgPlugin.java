@@ -11,6 +11,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -498,12 +499,35 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			drops.ensureFetched(npc, this::refreshPanel);
 		}
+		syncRegionLocker();
 	}
 
 	private void notifyZoneUnlocked(int zoneId)
 	{
 		clientThread.invoke(() -> message("Zone " + zones.describe(zoneId)
 			+ " unlocked! Its mobs join your collection log as you sight them."));
+		syncRegionLocker();
+	}
+
+	/**
+	 * Mirror our unlocked zones into the Region Locker hub plugin's config so
+	 * its (much prettier) shading renders them. 64x64 zones map 1:1 to RS map
+	 * regions, which is exactly what Region Locker locks.
+	 */
+	private void syncRegionLocker()
+	{
+		if (!config.syncRegionLocker() || config.zoneSize() != ZoneSize.REGION_64 || !state.isLoaded())
+		{
+			return;
+		}
+		List<String> regionIds = new ArrayList<>();
+		for (int zoneId : state.getUnlockedChunks())
+		{
+			regionIds.add(String.valueOf(zones.rsRegionId(zoneId)));
+		}
+		regionIds.sort(Comparator.naturalOrder());
+		configManager.setConfiguration("regionlocker", "unlockedRegions", String.join(",", regionIds));
+		log.debug("Synced {} regions to Region Locker", regionIds.size());
 	}
 
 	private void refreshPanel()
