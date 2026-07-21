@@ -170,6 +170,28 @@ public class ChunkTcgPanel extends PluginPanel
 			return;
 		}
 
+		// Current-zone summary at the top
+		WorldPoint pos = playerPos.get();
+		if (pos != null)
+		{
+			int zoneId = zones.fromWorld(pos);
+			Set<String> zoneMobs = state.getDiscovered().get(zoneId);
+			int sighted = zoneMobs == null ? 0 : zoneMobs.size();
+			if (state.isUnlocked(zoneId))
+			{
+				collectionContent.add(header("Currently in: " + zones.describe(zoneId)));
+				collectionContent.add(infoLabel(sighted + " different mob" + (sighted == 1 ? "" : "s")
+					+ " sighted in this zone"));
+			}
+			else
+			{
+				JLabel locked = header("Currently in: " + zones.describe(zoneId) + " [LOCKED]");
+				locked.setForeground(new Color(255, 120, 120));
+				collectionContent.add(locked);
+			}
+			collectionContent.add(Box.createVerticalStrut(8));
+		}
+
 		Set<String> npcs = new TreeSet<>(state.allDiscoveredNpcs());
 		if (npcs.isEmpty())
 		{
