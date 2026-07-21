@@ -43,6 +43,7 @@ public class WikiDropsService
 	private static final File CACHE_DIR = new File(RuneLite.RUNELITE_DIR, "chunk-tcg/drops");
 	// Tolerates one level of nested {{templates}} inside the line's params
 	private static final Pattern DROPS_LINE = Pattern.compile("\\{\\{DropsLine\\|((?:[^{}]|\\{\\{[^{}]*}})*)}}");
+	private static final Pattern DROPS_LINE_CLUE = Pattern.compile("\\{\\{DropsLineClue\\|((?:[^{}]|\\{\\{[^{}]*}})*)}}");
 	private static final Pattern NESTED_TEMPLATE = Pattern.compile("\\{\\{[^{}]*}}");
 	private static final Pattern REF_TAG = Pattern.compile("<ref[^>]*+(?:/>|>.*?</ref>)", Pattern.DOTALL);
 	private static final Pattern WIKI_LINK = Pattern.compile("\\[\\[(?:[^\\]|]*\\|)?([^\\]]*)]]");
@@ -241,6 +242,42 @@ public class WikiDropsService
 			if (existing == null || rate > existing.getRate())
 			{
 				byName.put(nkey, new Drop(name, rate));
+			}
+		}
+		// Clue drops use their own template: {{DropsLineClue|type=beginner|rarity=1/128}}
+		Matcher clue = DROPS_LINE_CLUE.matcher(wikitext);
+		while (clue.find())
+		{
+			String type = null;
+			String rarity = null;
+			for (String param : clue.group(1).split("\\|"))
+			{
+				int eq = param.indexOf('=');
+				if (eq < 0)
+				{
+					continue;
+				}
+				String k = param.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+				String v = param.substring(eq + 1).trim();
+				if (k.equals("type"))
+				{
+					type = v.toLowerCase(Locale.ROOT);
+				}
+				else if (k.equals("rarity"))
+				{
+					rarity = v;
+				}
+			}
+			if (type == null || type.isEmpty())
+			{
+				continue;
+			}
+			String name = "Clue scroll (" + type + ")";
+			double rate = parseRarity(rarity);
+			Drop existing = byName.get(normalize(name));
+			if (existing == null || rate > existing.getRate())
+			{
+				byName.put(normalize(name), new Drop(name, rate));
 			}
 		}
 		return new ArrayList<>(byName.values());

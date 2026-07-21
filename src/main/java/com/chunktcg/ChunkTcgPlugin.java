@@ -505,6 +505,7 @@ public class ChunkTcgPlugin extends Plugin
 		state.addKill(chunk, name);
 		drops.ensureFetched(name, this::refreshPanel);
 
+		List<Drop> mobTable = drops.get(name);
 		for (ItemStack stack : event.getItems())
 		{
 			int canonicalId = itemManager.canonicalize(stack.getId());
@@ -513,6 +514,24 @@ public class ChunkTcgPlugin extends Plugin
 			if (itemName == null || itemName.equalsIgnoreCase("null"))
 			{
 				continue;
+			}
+			// Only track items that are actually on the mob's table (skip rare
+			// drop table rolls etc.); if the table isn't fetched yet, allow it
+			if (mobTable != null)
+			{
+				boolean inTable = false;
+				for (Drop d : mobTable)
+				{
+					if (d.getItemName().equalsIgnoreCase(itemName))
+					{
+						inTable = true;
+						break;
+					}
+				}
+				if (!inTable)
+				{
+					continue;
+				}
 			}
 			if (state.collectItem(chunk, name, itemName, canonicalId))
 			{

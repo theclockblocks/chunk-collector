@@ -43,6 +43,25 @@ public class WikiDropsParseTest
 	}
 
 	@Test
+	public void parsesClueLines()
+	{
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
+				+ "{{DropsLineClue|type=beginner|rarity=1/128}}");
+		assertEquals(2, drops.size());
+		boolean found = false;
+		for (Drop d : drops)
+		{
+			if (d.getItemName().equals("Clue scroll (beginner)"))
+			{
+				found = true;
+				assertEquals(1.0 / 128, d.getRate(), 1e-9);
+			}
+		}
+		org.junit.Assert.assertTrue(found);
+	}
+
+	@Test
 	public void keepsHighestRateForDuplicates()
 	{
 		List<Drop> drops = WikiDropsService.parseWikitext(
