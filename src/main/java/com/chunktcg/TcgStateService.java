@@ -33,6 +33,10 @@ public class TcgStateService
 	private static final String KEY_ZONE_MODE = "zoneMode";
 	private static final String KEY_LOCKED_THRESHOLD = "lockedThreshold";
 	private static final String KEY_KILLS = "killCounts";
+	private static final String KEY_LOCKED_GOAL = "lockedGoal";
+	private static final String KEY_GOAL_COMPLETE = "goalComplete";
+	private static final String KEY_CHALLENGES_DONE = "challengesDone";
+	private static final String KEY_CHALLENGE_TOKENS = "challengeTokensGranted";
 
 	/** Claim bitmask per zone. */
 	public static final int CLAIM_THRESHOLD = 1;
@@ -86,6 +90,19 @@ public class TcgStateService
 	/** Threshold % frozen at the first logged drop; 0 = not locked yet. */
 	@Getter
 	private int lockedThreshold;
+
+	/** Run goal frozen at the first logged drop; null = not locked yet. */
+	private String lockedGoal;
+
+	@Getter
+	private boolean goalComplete;
+
+	/** "zoneId|challenge name" of ticked community challenges. */
+	@Getter
+	private final Set<String> completedChallenges = ConcurrentHashMap.newKeySet();
+
+	@Getter
+	private int challengeTokensGranted;
 
 	@Getter
 	private boolean loaded;
@@ -198,9 +215,26 @@ public class TcgStateService
 			}
 		}
 
+		String challengesJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CHALLENGES_DONE);
+		if (!modeChanged && challengesJson != null && !challengesJson.isEmpty())
+		{
+			Type t = new TypeToken<Set<String>>()
+			{
+			}.getType();
+			Set<String> saved = gson.fromJson(challengesJson, t);
+			if (saved != null)
+			{
+				completedChallenges.addAll(saved);
+			}
+		}
+
 		zoneTokens = getIntKey(KEY_TOKENS);
 		violations = getIntKey(KEY_VIOLATIONS);
 		lockedThreshold = getIntKey(KEY_LOCKED_THRESHOLD);
+		challengeTokensGranted = getIntKey(KEY_CHALLENGE_TOKENS);
+		lockedGoal = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_GOAL);
+		goalComplete = Boolean.parseBoolean(
+			configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_GOAL_COMPLETE));
 		loaded = true;
 		log.debug("Loaded state: {} zones, {} items collected, {} tokens",
 			unlockedChunks.size(), collected.size(), zoneTokens);
@@ -238,6 +272,12 @@ public class TcgStateService
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_TOKENS, zoneTokens);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_THRESHOLD, lockedThreshold);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_GOAL,
+			lockedGoal == null ? "" : lockedGoal);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_GOAL_COMPLETE, goalComplete);
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CHALLENGES_DONE,
+			gson.toJson(completedChallenges));
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CHALLENGE_TOKENS, challengeTokensGranted);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_ZONE_MODE, config.zoneSize().name());
 	}
 
@@ -255,6 +295,55 @@ public class TcgStateService
 		return lockedThreshold > 0;
 	}
 
+	/** The run goal in force: config value until the first drop, frozen after. */
+	public String effectiveGoal()
+	{
+		if (lockedThreshold > 0)
+		{
+			return lockedGoal == null ? "" : lockedGoal;
+		}
+		String g = config.runGoal();
+		return g == null ? "" : g.trim();
+	}
+
+	public void markGoalComplete()
+	{
+		goalComplete = true;
+		save();
+	}
+
+	/**
+	 * Toggle a community challenge. Returns the number of bonus tokens newly
+	 * granted (0 on untick or below the next multiple).
+	 */
+	public int toggleChallenge(int zoneId, String challengeName)
+	{
+		String key = zoneId + "|" + challengeName;
+		if (!completedChallenges.remove(key))
+		{
+			completedChallenges.add(key);
+		}
+		int granted = 0;
+		int per = config.challengesPerToken();
+		if (per > 0)
+		{
+			int earnedTotal = completedChallenges.size() / per;
+			if (earnedTotal > challengeTokensGranted)
+			{
+				granted = earnedTotal - challengeTokensGranted;
+				challengeTokensGranted = earnedTotal;
+				zoneTokens += granted;
+			}
+		}
+		save();
+		return granted;
+	}
+
+	public boolean isChallengeDone(int zoneId, String challengeName)
+	{
+		return completedChallenges.contains(zoneId + "|" + challengeName);
+	}
+
 	/** Wipe this character's entire run and start fresh. */
 	public void resetRun()
 	{
@@ -263,9 +352,13 @@ public class TcgStateService
 		collected.clear();
 		zoneClaims.clear();
 		killCounts.clear();
+		completedChallenges.clear();
 		zoneTokens = 0;
 		violations = 0;
 		lockedThreshold = 0;
+		challengeTokensGranted = 0;
+		lockedGoal = null;
+		goalComplete = false;
 		unlockedChunks.addAll(parseStartingAreas());
 		save();
 		log.debug("Run reset");
@@ -379,10 +472,11 @@ public class TcgStateService
 	/** Record a drop collected from this mob IN this zone. Returns true if new. */
 	public boolean collectItem(int zoneId, String mobName, String itemName, int itemId)
 	{
-		// The first logged drop freezes the run's threshold — no goalpost-moving
+		// The first logged drop freezes the run's threshold and goal — no goalpost-moving
 		if (lockedThreshold == 0)
 		{
 			lockedThreshold = config.thresholdPercent();
+			lockedGoal = config.runGoal() == null ? "" : config.runGoal().trim();
 		}
 		String key = collectionKey(zoneId, mobName, itemName);
 		CardEntry entry = collected.get(key);

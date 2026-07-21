@@ -81,6 +81,9 @@ public class ChunkTcgPlugin extends Plugin
 	private CardToastOverlay toastOverlay;
 
 	@Inject
+	private ChallengeData challengeData;
+
+	@Inject
 	private ClientToolbar clientToolbar;
 
 	private ChunkTcgPanel panel;
@@ -95,8 +98,9 @@ public class ChunkTcgPlugin extends Plugin
 	{
 		overlayManager.add(toastOverlay);
 
-		panel = new ChunkTcgPanel(state, drops, config, itemManager, zones,
-			() -> lastPlayerPos, this::notifyZoneUnlocked, this::resetFromPanel);
+		panel = new ChunkTcgPanel(state, drops, config, itemManager, zones, challengeData,
+			() -> lastPlayerPos, this::notifyZoneUnlocked, this::resetFromPanel,
+			this::notifyBonusTokens, this::notifyGoalComplete);
 		navButton = NavigationButton.builder()
 			.tooltip("Chunk Collector")
 			.icon(buildIcon())
@@ -520,6 +524,20 @@ public class ChunkTcgPlugin extends Plugin
 		state.resetRun();
 		seedAndPrefetch();
 		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
+	}
+
+	private void notifyBonusTokens(int n)
+	{
+		clientThread.invoke(() -> message("★ Community challenges rewarded " + n
+			+ " bonus zone token" + (n == 1 ? "" : "s") + "! (" + state.getZoneTokens() + " total)"));
+		toastOverlay.push("Bonus zone token!", "Challenges completed", -1, null);
+	}
+
+	private void notifyGoalComplete()
+	{
+		clientThread.invoke(() -> message("★★★ RUN GOAL COMPLETE: " + state.effectiveGoal()
+			+ " ★★★ What a run. Set a new goal with a fresh run, or keep expanding!"));
+		toastOverlay.push("RUN GOAL COMPLETE!", state.effectiveGoal(), -1, null);
 	}
 
 	private void notifyZoneUnlocked(int zoneId)

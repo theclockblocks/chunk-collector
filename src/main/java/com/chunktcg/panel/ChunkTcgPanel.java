@@ -1,6 +1,7 @@
 package com.chunktcg.panel;
 
 import com.chunktcg.CardEntry;
+import com.chunktcg.ChallengeData;
 import com.chunktcg.ChunkTcgConfig;
 import com.chunktcg.Drop;
 import com.chunktcg.RarityTier;
@@ -25,7 +26,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
+import javax.swing.JCheckBox;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -52,20 +55,26 @@ public class ChunkTcgPanel extends PluginPanel
 	private final ChunkTcgConfig config;
 	private final ItemManager itemManager;
 	private final ZoneGrid zones;
+	private final ChallengeData challenges;
 	private final Supplier<WorldPoint> playerPos;
 	private final Consumer<Integer> unlockNotifier;
 	private final Runnable resetAction;
+	private final IntConsumer bonusTokenNotifier;
+	private final Runnable goalCompleteNotifier;
 
 	private final JPanel collectionContent = new JPanel();
+	private final JPanel tasksContent = new JPanel();
 	private final JPanel zonesContent = new JPanel();
 	private final JPanel display = new JPanel();
 
 	/** Per-zone expand/collapse toggles; absent = default (current zone open). */
 	private final Map<Integer, Boolean> zoneExpanded = new HashMap<>();
+	private final Map<Integer, Boolean> taskZoneExpanded = new HashMap<>();
 
 	public ChunkTcgPanel(TcgStateService state, WikiDropsService drops, ChunkTcgConfig config,
-		ItemManager itemManager, ZoneGrid zones, Supplier<WorldPoint> playerPos,
-		Consumer<Integer> unlockNotifier, Runnable resetAction)
+		ItemManager itemManager, ZoneGrid zones, ChallengeData challenges,
+		Supplier<WorldPoint> playerPos, Consumer<Integer> unlockNotifier, Runnable resetAction,
+		IntConsumer bonusTokenNotifier, Runnable goalCompleteNotifier)
 	{
 		super(false);
 		this.state = state;
@@ -73,21 +82,27 @@ public class ChunkTcgPanel extends PluginPanel
 		this.config = config;
 		this.itemManager = itemManager;
 		this.zones = zones;
+		this.challenges = challenges;
 		this.playerPos = playerPos;
 		this.unlockNotifier = unlockNotifier;
 		this.resetAction = resetAction;
+		this.bonusTokenNotifier = bonusTokenNotifier;
+		this.goalCompleteNotifier = goalCompleteNotifier;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 
 		collectionContent.setLayout(new BoxLayout(collectionContent, BoxLayout.Y_AXIS));
+		tasksContent.setLayout(new BoxLayout(tasksContent, BoxLayout.Y_AXIS));
 		zonesContent.setLayout(new BoxLayout(zonesContent, BoxLayout.Y_AXIS));
 
 		MaterialTabGroup tabGroup = new MaterialTabGroup(display);
-		MaterialTab collectionTab = new MaterialTab("Collection", tabGroup, wrapScroll(collectionContent));
+		MaterialTab collectionTab = new MaterialTab("Log", tabGroup, wrapScroll(collectionContent));
+		MaterialTab tasksTab = new MaterialTab("Tasks", tabGroup, wrapScroll(tasksContent));
 		MaterialTab zonesTab = new MaterialTab("Zones", tabGroup, wrapScroll(zonesContent));
 		tabGroup.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
 		tabGroup.addTab(collectionTab);
+		tabGroup.addTab(tasksTab);
 		tabGroup.addTab(zonesTab);
 		tabGroup.select(collectionTab);
 
@@ -160,9 +175,117 @@ public class ChunkTcgPanel extends PluginPanel
 			return;
 		}
 		rebuildCollection();
+		rebuildTasks();
 		rebuildZones();
 		revalidate();
 		repaint();
+	}
+
+	// ---- Tasks (community challenges) ----
+
+	private void rebuildTasks()
+	{
+		tasksContent.removeAll();
+		if (!state.isLoaded())
+		{
+			tasksContent.add(infoLabel("Log in to see zone challenges."));
+			return;
+		}
+
+		int per = config.challengesPerToken();
+		tasksContent.add(header("Community challenges"));
+		tasksContent.add(infoLabel("Crowd-sourced by the chunk-locked community. Tick them off as you complete them"
+			+ (per > 0 ? " — every " + per + " earns a bonus zone token." : ".")
+			+ " Done: " + state.getCompletedChallenges().size()));
+		tasksContent.add(Box.createVerticalStrut(8));
+
+		WorldPoint pos = playerPos.get();
+		int currentZone = pos != null ? zones.fromWorld(pos) : -1;
+
+		List<Integer> zoneIds = new ArrayList<>(state.getUnlockedChunks());
+		zoneIds.sort(Comparator.naturalOrder());
+		if (zoneIds.remove(Integer.valueOf(currentZone)))
+		{
+			zoneIds.add(0, currentZone);
+		}
+
+		boolean any = false;
+		for (final int zoneId : zoneIds)
+		{
+			List<ChallengeData.Challenge> zoneChallenges = challenges.forRegion(zones.rsRegionId(zoneId));
+			if (zoneChallenges.isEmpty())
+			{
+				continue;
+			}
+			any = true;
+			int done = 0;
+			for (ChallengeData.Challenge c : zoneChallenges)
+			{
+				if (state.isChallengeDone(zoneId, c.getN()))
+				{
+					done++;
+				}
+			}
+			final boolean expanded = taskZoneExpanded.getOrDefault(zoneId, zoneId == currentZone);
+
+			JPanel zoneHeader = new JPanel(new BorderLayout(4, 0));
+			zoneHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+			zoneHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+			zoneHeader.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+			zoneHeader.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+			zoneHeader.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+			JLabel arrow = new JLabel(expanded ? "▼" : "▶");
+			arrow.setForeground(new Color(255, 200, 0));
+			zoneHeader.add(arrow, BorderLayout.WEST);
+			JLabel title = new JLabel(zones.describe(zoneId) + "  " + done + "/" + zoneChallenges.size());
+			title.setForeground(Color.WHITE);
+			title.setFont(title.getFont().deriveFont(Font.BOLD));
+			zoneHeader.add(title, BorderLayout.CENTER);
+			zoneHeader.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					taskZoneExpanded.put(zoneId, !expanded);
+					refresh();
+				}
+			});
+			tasksContent.add(zoneHeader);
+			tasksContent.add(Box.createVerticalStrut(3));
+
+			if (expanded)
+			{
+				for (final ChallengeData.Challenge c : zoneChallenges)
+				{
+					boolean isDone = state.isChallengeDone(zoneId, c.getN());
+					JCheckBox box = new JCheckBox("<html><body style='width:140px'>"
+						+ c.display() + "</body></html>", isDone);
+					box.setAlignmentX(Component.LEFT_ALIGNMENT);
+					box.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+					box.setForeground(isDone ? new Color(94, 204, 94) : ColorScheme.LIGHT_GRAY_COLOR);
+					if (c.getC() != null)
+					{
+						box.setToolTipText(c.getC());
+					}
+					box.addActionListener(e ->
+					{
+						int granted = state.toggleChallenge(zoneId, c.getN());
+						if (granted > 0)
+						{
+							bonusTokenNotifier.accept(granted);
+						}
+						refresh();
+					});
+					tasksContent.add(box);
+				}
+			}
+			tasksContent.add(Box.createVerticalStrut(6));
+		}
+		if (!any)
+		{
+			tasksContent.add(infoLabel("No community challenges recorded for your unlocked zones yet."));
+		}
 	}
 
 	// ---- Collection ----
@@ -369,6 +492,43 @@ public class ChunkTcgPanel extends PluginPanel
 		{
 			zonesContent.add(infoLabel("Log in to see zone progress."));
 			return;
+		}
+
+		// Run goal banner
+		String goal = state.effectiveGoal();
+		if (!goal.isEmpty())
+		{
+			if (state.isGoalComplete())
+			{
+				JLabel done = header("★ GOAL COMPLETE: " + goal + " ★");
+				done.setForeground(new Color(255, 215, 0));
+				zonesContent.add(done);
+			}
+			else
+			{
+				zonesContent.add(header("Goal: " + goal));
+				JButton complete = new JButton("Mark goal complete");
+				complete.setAlignmentX(Component.LEFT_ALIGNMENT);
+				complete.addActionListener(e ->
+				{
+					int choice = JOptionPane.showConfirmDialog(this,
+						"Did you really complete your run goal?\n\n" + goal,
+						"Goal complete", JOptionPane.YES_NO_OPTION);
+					if (choice == JOptionPane.YES_OPTION)
+					{
+						state.markGoalComplete();
+						goalCompleteNotifier.run();
+						refresh();
+					}
+				});
+				zonesContent.add(complete);
+			}
+			zonesContent.add(Box.createVerticalStrut(8));
+		}
+		else if (!state.isThresholdLocked())
+		{
+			zonesContent.add(infoLabel("Tip: set a Run goal in the plugin settings before your first drop — it locks in as your win condition."));
+			zonesContent.add(Box.createVerticalStrut(8));
 		}
 
 		zonesContent.add(header("Zone tokens: " + state.getZoneTokens()));
