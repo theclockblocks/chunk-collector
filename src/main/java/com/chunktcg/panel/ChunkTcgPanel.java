@@ -25,10 +25,13 @@ import java.util.function.Supplier;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import java.awt.Component;
+import java.awt.Rectangle;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import net.runelite.api.coords.WorldPoint;
@@ -95,15 +98,56 @@ public class ChunkTcgPanel extends PluginPanel
 		refresh();
 	}
 
+	/**
+	 * Panel that always matches the scroll viewport's width, so content wraps
+	 * and shrinks instead of being clipped off the right edge of the sidebar.
+	 */
+	private static class ViewportWidthPanel extends JPanel implements Scrollable
+	{
+		ViewportWidthPanel()
+		{
+			super(new BorderLayout());
+		}
+
+		@Override
+		public Dimension getPreferredScrollableViewportSize()
+		{
+			return getPreferredSize();
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			return 64;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth()
+		{
+			return true;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight()
+		{
+			return false;
+		}
+	}
+
 	private JScrollPane wrapScroll(JPanel content)
 	{
-		JPanel holder = new JPanel(new BorderLayout());
+		ViewportWidthPanel holder = new ViewportWidthPanel();
 		holder.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		holder.add(content, BorderLayout.NORTH);
 		JScrollPane scroll = new JScrollPane(holder);
 		scroll.setBorder(null);
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
-		// The sidebar is ~225px wide — never grow sideways, wrap instead
 		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		return scroll;
 	}
@@ -151,6 +195,7 @@ public class ChunkTcgPanel extends PluginPanel
 			List<Drop> table = cached == null ? null : new ArrayList<>(cached);
 			JPanel section = new JPanel();
 			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
+			section.setAlignmentX(Component.LEFT_ALIGNMENT);
 			section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 
@@ -168,6 +213,8 @@ public class ChunkTcgPanel extends PluginPanel
 
 			// Only cards actually pulled from packs are revealed — the rest stay a mystery
 			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
+			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			boolean any = false;
 			for (Drop d : table)
@@ -207,10 +254,13 @@ public class ChunkTcgPanel extends PluginPanel
 		{
 			JPanel section = new JPanel();
 			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
+			section.setAlignmentX(Component.LEFT_ALIGNMENT);
 			section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			section.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 			section.add(header("Other cards"));
 			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));
+			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+			grid.setMaximumSize(new Dimension(180, Integer.MAX_VALUE));
 			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			other.sort(Comparator.comparing(CardEntry::getName));
 			for (CardEntry e : other)
@@ -283,6 +333,7 @@ public class ChunkTcgPanel extends PluginPanel
 			packsContent.add(Box.createVerticalStrut(6));
 
 			JButton open = new JButton("Open starter pack " + (opened + 1) + " of " + total);
+			open.setAlignmentX(Component.LEFT_ALIGNMENT);
 			open.addActionListener(e ->
 			{
 				List<PackService.PullResult> pulls = starterOpener.get();
@@ -304,6 +355,7 @@ public class ChunkTcgPanel extends PluginPanel
 		packsContent.add(Box.createVerticalStrut(8));
 
 		JButton buy = new JButton("Open pack (" + config.packCost() + " credits)");
+		buy.setAlignmentX(Component.LEFT_ALIGNMENT);
 		buy.setEnabled(poolSize > 0 && state.getCredits() >= config.packCost());
 		buy.addActionListener(e ->
 		{
@@ -318,6 +370,7 @@ public class ChunkTcgPanel extends PluginPanel
 		packsContent.add(Box.createVerticalStrut(4));
 
 		JButton sell = new JButton("Sell all duplicate cards");
+		sell.setAlignmentX(Component.LEFT_ALIGNMENT);
 		sell.addActionListener(e ->
 		{
 			int gained = state.sellAllDupes();
@@ -343,6 +396,7 @@ public class ChunkTcgPanel extends PluginPanel
 		for (PackService.PullResult pull : lastPulls)
 		{
 			JPanel row = new JPanel(new BorderLayout(4, 0));
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
 			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			row.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(0, 3, 0, 0,
@@ -428,6 +482,8 @@ public class ChunkTcgPanel extends PluginPanel
 				break;
 			}
 			JPanel row = new JPanel(new BorderLayout(4, 0));
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
 			row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			row.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
 
@@ -469,6 +525,7 @@ public class ChunkTcgPanel extends PluginPanel
 		l.setForeground(Color.WHITE);
 		l.setFont(l.getFont().deriveFont(Font.BOLD));
 		l.setBorder(BorderFactory.createEmptyBorder(2, 0, 4, 0));
+		l.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return l;
 	}
 
@@ -477,6 +534,7 @@ public class ChunkTcgPanel extends PluginPanel
 		// Fixed html body width forces wrapping instead of stretching the sidebar
 		JLabel l = new JLabel("<html><body style='width:160px'>" + text + "</body></html>");
 		l.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		l.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return l;
 	}
 }
