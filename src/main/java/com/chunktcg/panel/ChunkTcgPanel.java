@@ -193,6 +193,11 @@ public class ChunkTcgPanel extends PluginPanel
 		{
 			List<Drop> cached = drops.get(npc);
 			List<Drop> table = cached == null ? null : new ArrayList<>(cached);
+			if (table != null && table.isEmpty())
+			{
+				// Known to drop nothing — nothing to collect, no album entry
+				continue;
+			}
 			JPanel section = new JPanel();
 			section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
 			section.setAlignmentX(Component.LEFT_ALIGNMENT);

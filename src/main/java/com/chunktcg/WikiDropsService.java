@@ -58,21 +58,24 @@ public class WikiDropsService
 	@Inject
 	private Gson gson;
 
-	/** Returns the cached drop table, or null if not (yet) available. */
+	/**
+	 * Returns the cached drop table: null means unknown (not fetched yet),
+	 * an empty list means the NPC is known to have no drops.
+	 */
 	public List<Drop> get(String npcName)
 	{
 		String key = normalize(npcName);
 		List<Drop> cached = cache.get(key);
 		if (cached != null)
 		{
-			return cached.isEmpty() ? null : cached;
+			return cached;
 		}
 
 		List<Drop> fromDisk = loadFromDisk(key);
 		if (fromDisk != null)
 		{
 			cache.put(key, fromDisk);
-			return fromDisk.isEmpty() ? null : fromDisk;
+			return fromDisk;
 		}
 		return null;
 	}
@@ -90,15 +93,21 @@ public class WikiDropsService
 	public void ensureFetched(String npcName, Runnable onUpdate)
 	{
 		String key = normalize(npcName);
-		if (cache.containsKey(key) || failed.contains(key) || !pending.add(key))
+		if (cache.containsKey(key))
+		{
+			// already available — still tell the caller so it can react
+			onUpdate.run();
+			return;
+		}
+		if (failed.contains(key) || !pending.add(key))
 		{
 			return;
 		}
 
-		List<Drop> fromDisk = loadFromDisk(key);
-		if (fromDisk != null)
+		List<Drop> diskCached = loadFromDisk(key);
+		if (diskCached != null)
 		{
-			cache.put(key, fromDisk);
+			cache.put(key, diskCached);
 			pending.remove(key);
 			onUpdate.run();
 			return;

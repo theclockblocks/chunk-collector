@@ -287,6 +287,12 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
+		// Only combat NPCs are collectable — skip fishing spots, butterflies,
+		// quest NPCs etc. (combat-0 NPCs stay freely interactable anyway)
+		if (npc.getCombatLevel() <= 0)
+		{
+			return;
+		}
 		String name = npc.getName();
 		WorldPoint loc = npc.getWorldLocation();
 		if (name == null || name.isEmpty() || loc == null)
@@ -300,9 +306,16 @@ public class ChunkTcgPlugin extends Plugin
 		}
 		if (state.discoverNpc(zone, name))
 		{
-			message("Sighted " + name + " — its drop table joins the pack pool. "
-				+ "Pull one of its cards to fight it!");
-			drops.ensureFetched(name, this::refreshPanel);
+			drops.ensureFetched(name, () ->
+			{
+				java.util.List<Drop> table = drops.get(name);
+				if (table != null && !table.isEmpty())
+				{
+					clientThread.invoke(() -> message("Sighted " + name
+						+ " — its drop table joins the pack pool. Pull one of its cards to fight it!"));
+				}
+				refreshPanel();
+			});
 			refreshPanel();
 		}
 	}
