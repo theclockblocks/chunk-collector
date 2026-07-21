@@ -1,7 +1,16 @@
 package com.chunktcg;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Map;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.coords.WorldPoint;
 
 /**
@@ -9,11 +18,18 @@ import net.runelite.api.coords.WorldPoint;
  * (64x64 regions by default, 8x8 chunks for hardcore runs). Zone ids use
  * the same packing as ChunkCoord: (zx << 16) | zy of world coords >> shift.
  */
+@Slf4j
 @Singleton
 public class ZoneGrid
 {
 	@Inject
 	private ChunkTcgConfig config;
+
+	@Inject
+	private Gson gson;
+
+	/** Community region nicknames from Chunk Picker, keyed by RS region id. */
+	private Map<String, String> regionNames;
 
 	public int shift()
 	{
@@ -56,9 +72,48 @@ public class ZoneGrid
 		return baseY(id) + sizeTiles() / 2;
 	}
 
+	/**
+	 * Human name for a zone: the chunk-locked community's nickname for the map
+	 * region (e.g. "Lumbridge Castle") when in 64x64 mode, coords otherwise.
+	 */
 	public String describe(int id)
 	{
+		if (config.zoneSize() == ZoneSize.REGION_64)
+		{
+			String name = names().get(String.valueOf(rsRegionId(id)));
+			if (name != null && !name.isEmpty())
+			{
+				return name;
+			}
+		}
 		return "(" + ChunkCoord.cx(id) + ", " + ChunkCoord.cy(id) + ")";
+	}
+
+	private synchronized Map<String, String> names()
+	{
+		if (regionNames == null)
+		{
+			try (InputStream in = ZoneGrid.class.getResourceAsStream("/region-names.json"))
+			{
+				if (in == null)
+				{
+					regionNames = Collections.emptyMap();
+				}
+				else
+				{
+					Type t = new TypeToken<Map<String, String>>()
+					{
+					}.getType();
+					regionNames = gson.fromJson(new InputStreamReader(in, StandardCharsets.UTF_8), t);
+				}
+			}
+			catch (Exception e)
+			{
+				log.debug("Failed loading region names", e);
+				regionNames = Collections.emptyMap();
+			}
+		}
+		return regionNames;
 	}
 
 	/**

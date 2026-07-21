@@ -57,7 +57,9 @@ Chunk Collector stands on the shoulders of these excellent plugins — go star t
   an earlier iteration of this plugin was a full card-game hybrid inspired by it
   (preserved at git tag `v0.1-tcg`).
 - **[Chunk Picker](https://source-chunk.github.io/chunk-picker-v2/)** and the chunk-locked
-  community (Limpwurt et al.) for the genre itself.
+  community (Limpwurt et al.) for the genre itself — and for the crowd-sourced
+  region nicknames (`region-names.json` is extracted from Chunk Picker's public
+  chunk-info export) that let zones be called "Lumbridge Castle" instead of (50, 50).
 - Drop data: **[Old School RuneScape Wiki](https://oldschool.runescape.wiki)** (CC BY-NC-SA 3.0).
 - Built from the [runelite/example-plugin](https://github.com/runelite/example-plugin)
   template (BSD-2-Clause).
