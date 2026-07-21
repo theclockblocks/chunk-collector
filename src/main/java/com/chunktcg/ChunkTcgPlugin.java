@@ -104,6 +104,26 @@ public class ChunkTcgPlugin extends Plugin
 	private int lastChunk = -1;
 	private int lastWarnedChunk = -1;
 
+	private static class PendingLoot
+	{
+		final int zone;
+		final String mob;
+		final String itemName;
+		final int itemId;
+
+		PendingLoot(int zone, String mob, String itemName, int itemId)
+		{
+			this.zone = zone;
+			this.mob = mob;
+			this.itemName = itemName;
+			this.itemId = itemId;
+		}
+	}
+
+	/** Loot received before its mob's table downloaded — verified on arrival. */
+	private final List<PendingLoot> pendingLoot =
+		java.util.Collections.synchronizedList(new ArrayList<>());
+
 	// Skilling-node bookkeeping
 	private final Map<Integer, String> nodeNameById = new HashMap<>();
 	private final Map<Skill, Integer> lastXp = new EnumMap<>(Skill.class);
@@ -503,7 +523,11 @@ public class ChunkTcgPlugin extends Plugin
 
 		state.discoverNpc(chunk, name);
 		state.addKill(chunk, name);
-		drops.ensureFetched(name, this::refreshPanel);
+		drops.ensureFetched(name, () ->
+		{
+			processPendingLoot();
+			refreshPanel();
+		});
 
 		List<Drop> mobTable = drops.get(name);
 		for (ItemStack stack : event.getItems())
@@ -515,33 +539,22 @@ public class ChunkTcgPlugin extends Plugin
 			{
 				continue;
 			}
-			// Only track items that are actually on the mob's table (skip rare
-			// drop table rolls etc.); if the table isn't fetched yet, allow it
-			if (mobTable != null)
+			if (mobTable == null)
 			{
-				boolean inTable = false;
-				for (Drop d : mobTable)
+				// Table still downloading — queue the drop and verify on arrival
+				if (pendingLoot.size() < 200)
 				{
-					if (d.getItemName().equalsIgnoreCase(itemName))
-					{
-						inTable = true;
-						break;
-					}
+					pendingLoot.add(new PendingLoot(chunk, name, itemName, canonicalId));
 				}
-				if (!inTable)
-				{
-					continue;
-				}
+				continue;
 			}
-			if (state.collectItem(chunk, name, itemName, canonicalId))
+			// Only track items actually on the mob's table (skip rare drop
+			// table rolls, event items etc.)
+			if (!isOnTable(mobTable, itemName))
 			{
-				// Rarity from THIS mob's table — the same item can differ per mob
-				RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(name));
-				int pts = state.pointsFor(tier);
-				message("Collected from " + name + ": " + itemName
-					+ " [" + tier.getLabel() + ", +" + pts + " pts]");
-				toastOverlay.push("Collected! +" + pts + " pts", itemName, canonicalId, tier);
+				continue;
 			}
+			creditCollection(chunk, name, itemName, canonicalId);
 		}
 
 		// A new item can complete claims in any zone whose log contains it
@@ -705,17 +718,80 @@ public class ChunkTcgPlugin extends Plugin
 		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
 	}
 
+	private static boolean isOnTable(List<Drop> table, String itemName)
+	{
+		for (Drop d : table)
+		{
+			if (d.getItemName().equalsIgnoreCase(itemName))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Record a verified table drop, announce it, and re-evaluate zone claims. */
+	private void creditCollection(int zone, String mob, String itemName, int itemId)
+	{
+		if (state.collectItem(zone, mob, itemName, itemId))
+		{
+			// Rarity from THIS mob's table — the same item can differ per mob
+			RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(mob));
+			int pts = state.pointsFor(tier);
+			clientThread.invoke(() -> message("Collected from " + mob + ": " + itemName
+				+ " [" + tier.getLabel() + ", +" + pts + " pts]"));
+			toastOverlay.push("Collected! +" + pts + " pts", itemName, itemId, tier);
+		}
+	}
+
+	/** Verify queued drops whose mob tables have since downloaded. */
+	private void processPendingLoot()
+	{
+		List<PendingLoot> ready = new ArrayList<>();
+		synchronized (pendingLoot)
+		{
+			for (java.util.Iterator<PendingLoot> it = pendingLoot.iterator(); it.hasNext(); )
+			{
+				PendingLoot p = it.next();
+				if (drops.get(p.mob) != null)
+				{
+					ready.add(p);
+					it.remove();
+				}
+			}
+		}
+		if (ready.isEmpty())
+		{
+			return;
+		}
+		for (PendingLoot p : ready)
+		{
+			List<Drop> table = drops.get(p.mob);
+			if (table != null && isOnTable(table, p.itemName))
+			{
+				creditCollection(p.zone, p.mob, p.itemName, p.itemId);
+			}
+		}
+		for (int zoneId : state.getDiscovered().keySet())
+		{
+			announceClaims(zoneId, state.evaluateZoneClaims(zoneId));
+		}
+		refreshPanel();
+	}
+
 	private void announceClaims(int zoneId, int newClaims)
 	{
+		// May be called from OkHttp threads (pending loot) — marshal chat to client thread
 		if ((newClaims & TcgStateService.CLAIM_THRESHOLD) != 0)
 		{
-			message("★ Zone " + zones.describe(zoneId) + " hit its point threshold — +1 zone token! "
-				+ "Choose your next zone in the panel.");
+			clientThread.invoke(() -> message("★ Zone " + zones.describe(zoneId)
+				+ " hit its point threshold — +1 zone token! Choose your next zone in the panel."));
 			toastOverlay.push("Zone token earned!", "Zone " + zones.describe(zoneId), -1, null);
 		}
 		if ((newClaims & TcgStateService.CLAIM_FULL) != 0)
 		{
-			message("★★ Zone " + zones.describe(zoneId) + " is 100% COMPLETE — bonus zone token!");
+			clientThread.invoke(() -> message("★★ Zone " + zones.describe(zoneId)
+				+ " is 100% COMPLETE — bonus zone token!"));
 			toastOverlay.push("Zone 100% complete!", "Zone " + zones.describe(zoneId), -1, null);
 		}
 	}
