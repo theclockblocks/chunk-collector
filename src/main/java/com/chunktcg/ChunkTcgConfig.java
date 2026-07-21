@@ -133,6 +133,18 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "enableTestCommands",
+		name = "Enable test commands",
+		description = "Enables the ::chunktoken cheat command for testing zone unlocks. Leave off for real runs.",
+		section = progression,
+		position = 9
+	)
+	default boolean enableTestCommands()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "resetConfirm",
 		name = "Reset run (type: reset)",
 		description = "DANGER: type the word reset into this field to wipe this character's entire run — zones, collection, tokens, locked threshold and goal. The field clears itself afterwards.",

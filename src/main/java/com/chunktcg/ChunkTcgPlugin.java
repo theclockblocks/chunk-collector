@@ -206,7 +206,8 @@ public class ChunkTcgPlugin extends Plugin
 	@Subscribe
 	public void onCommandExecuted(CommandExecuted event)
 	{
-		if (!"chunktoken".equalsIgnoreCase(event.getCommand()) || !state.isLoaded())
+		if (!"chunktoken".equalsIgnoreCase(event.getCommand()) || !state.isLoaded()
+			|| !config.enableTestCommands())
 		{
 			return;
 		}
