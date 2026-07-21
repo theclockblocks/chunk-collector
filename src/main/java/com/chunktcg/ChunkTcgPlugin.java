@@ -31,6 +31,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
+import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.StatChanged;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -223,6 +224,14 @@ public class ChunkTcgPlugin extends Plugin
 			message("You are in a locked zone " + zones.describe(chunk)
 				+ " — kills here won't count and are violations.");
 		}
+		// Sweep for mobs that wandered into (or spawned in) unlocked zones
+		if (wv != null && !inInstance)
+		{
+			for (NPC npc : wv.npcs())
+			{
+				sightNpc(npc);
+			}
+		}
 		refreshPanel();
 	}
 
@@ -252,6 +261,48 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			state.addCredits(gained);
 			message("Level up! " + skill.getName() + " is now " + real + " — +" + gained + " credits.");
+			refreshPanel();
+		}
+	}
+
+	/**
+	 * Pokédex-style sighting: an NPC appearing in an unlocked zone registers
+	 * its drop table into the pack pool. The mob itself stays unattackable
+	 * until you pull one of its cards — the drop unlocks the mob.
+	 */
+	@Subscribe
+	public void onNpcSpawned(NpcSpawned event)
+	{
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null || wv.isInstance())
+		{
+			return;
+		}
+		sightNpc(event.getNpc());
+	}
+
+	private void sightNpc(NPC npc)
+	{
+		if (!state.isLoaded() || npc == null)
+		{
+			return;
+		}
+		String name = npc.getName();
+		WorldPoint loc = npc.getWorldLocation();
+		if (name == null || name.isEmpty() || loc == null)
+		{
+			return;
+		}
+		int zone = zones.fromWorld(loc);
+		if (!state.isUnlocked(zone))
+		{
+			return;
+		}
+		if (state.discoverNpc(zone, name))
+		{
+			message("Sighted " + name + " — its drop table joins the pack pool. "
+				+ "Pull one of its cards to fight it!");
+			drops.ensureFetched(name, this::refreshPanel);
 			refreshPanel();
 		}
 	}
@@ -342,6 +393,13 @@ public class ChunkTcgPlugin extends Plugin
 					+ ". Pull its zone card first!");
 				return;
 			}
+			if (npc != null && isNpcAction(action) && config.enforceItemLock()
+				&& npc.getName() != null && !state.isMobUnlocked(npc.getName()))
+			{
+				event.consume();
+				message("Blocked — pull a card from " + npc.getName() + "'s set before fighting it.");
+				return;
+			}
 		}
 
 		if (config.blockShopBuying())
@@ -370,7 +428,6 @@ public class ChunkTcgPlugin extends Plugin
 			case NPC_FOURTH_OPTION:
 			case NPC_FIFTH_OPTION:
 			case WIDGET_TARGET_ON_NPC:
-			case EXAMINE_NPC:
 				return true;
 			default:
 				return false;
@@ -407,7 +464,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		MenuEntry entry = event.getMenuEntry();
-		if (isLockedItemOp(entry))
+		if (isHiddenEntry(entry))
 		{
 			// left-click falls through to the next entry (usually Walk here)
 			entry.setDeprioritized(true);
@@ -417,7 +474,7 @@ public class ChunkTcgPlugin extends Plugin
 	@Subscribe
 	public void onMenuOpened(MenuOpened event)
 	{
-		if (!state.isLoaded() || !config.enforceItemLock())
+		if (!state.isLoaded())
 		{
 			return;
 		}
@@ -426,7 +483,7 @@ public class ChunkTcgPlugin extends Plugin
 		boolean changed = false;
 		for (MenuEntry entry : entries)
 		{
-			if (isLockedItemOp(entry))
+			if (isHiddenEntry(entry))
 			{
 				changed = true;
 				continue;
@@ -439,33 +496,69 @@ public class ChunkTcgPlugin extends Plugin
 		}
 	}
 
+	/** True if this menu entry should not exist: locked item op or locked mob op. */
+	private boolean isHiddenEntry(MenuEntry entry)
+	{
+		return isLockedItemOp(entry) || isLockedMobOp(entry);
+	}
+
+	/** Locked items keep only the configured allowlist (Examine/Drop/Destroy/Deposit). */
 	private boolean isLockedItemOp(MenuEntry entry)
 	{
+		if (!config.enforceItemLock())
+		{
+			return false;
+		}
 		int itemId = entry.getItemId();
 		if (itemId <= 0)
 		{
 			return false;
 		}
 		String option = entry.getOption();
-		if (option == null)
+		if (option == null || option.isEmpty())
 		{
 			return false;
 		}
-		boolean blocked = false;
-		for (String op : config.blockedOps().split(";"))
+		for (String op : config.allowedLockedOps().split(";"))
 		{
-			if (option.equalsIgnoreCase(op.trim()))
+			String allowed = op.trim();
+			if (!allowed.isEmpty() && option.toLowerCase(java.util.Locale.ROOT)
+				.startsWith(allowed.toLowerCase(java.util.Locale.ROOT)))
 			{
-				blocked = true;
-				break;
+				return false;
 			}
-		}
-		if (!blocked)
-		{
-			return false;
 		}
 		String name = itemManager.getItemComposition(itemId).getName();
 		return !state.isItemUnlocked(name);
+	}
+
+	/**
+	 * Mobs you haven't unlocked (no card from their table, or standing in a
+	 * locked zone) keep only Examine.
+	 */
+	private boolean isLockedMobOp(MenuEntry entry)
+	{
+		NPC npc = entry.getNpc();
+		if (npc == null)
+		{
+			return false;
+		}
+		String option = entry.getOption();
+		if (option == null || option.isEmpty() || option.equalsIgnoreCase("Examine"))
+		{
+			return false;
+		}
+		String name = npc.getName();
+		WorldPoint loc = npc.getWorldLocation();
+		if (name == null || loc == null)
+		{
+			return false;
+		}
+		if (config.blockZoneInteractions() && !state.isUnlocked(zones.fromWorld(loc)))
+		{
+			return true;
+		}
+		return config.enforceItemLock() && !state.isMobUnlocked(name);
 	}
 
 	/** Opens a starter pack from the panel (EDT). */

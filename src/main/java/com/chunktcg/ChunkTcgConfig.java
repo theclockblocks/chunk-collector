@@ -134,15 +134,15 @@ public interface ChunkTcgConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "blockedOps",
-		name = "Blocked actions",
-		description = "Menu actions removed on locked items, separated by semicolons",
+		keyName = "allowedLockedOps",
+		name = "Allowed on locked items",
+		description = "The ONLY menu actions locked items keep, separated by semicolons. Everything else (Take, Use, Wield, Eat...) is removed from menus entirely.",
 		section = progression,
 		position = 8
 	)
-	default String blockedOps()
+	default String allowedLockedOps()
 	{
-		return "Wield;Wear;Eat;Drink;Quaff;Equip;Invigorate";
+		return "Examine;Drop;Destroy;Deposit";
 	}
 
 	@ConfigItem(

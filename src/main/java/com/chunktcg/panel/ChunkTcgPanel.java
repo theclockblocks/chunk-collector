@@ -209,7 +209,13 @@ public class ChunkTcgPanel extends PluginPanel
 
 			table.sort(Comparator.comparingDouble(Drop::getRate).reversed());
 			int owned = state.ownedOf(table);
-			section.add(header(npc + "  " + owned + "/" + table.size()));
+			boolean mobUnlocked = state.isMobUnlocked(npc);
+			section.add(header(npc + "  " + owned + "/" + table.size()
+				+ (mobUnlocked ? "" : "  [LOCKED]")));
+			if (!mobUnlocked)
+			{
+				section.add(infoLabel("Sighted but locked — pull any card from its set to fight it."));
+			}
 
 			// Only cards actually pulled from packs are revealed — the rest stay a mystery
 			JPanel grid = new JPanel(new GridLayout(0, 4, 2, 2));

@@ -399,6 +399,27 @@ public class TcgStateService
 		}
 	}
 
+	/**
+	 * A mob is fightable once you own at least one card from its drop table.
+	 * Mobs with no drop table at all (ducks...) are free — nothing to collect.
+	 */
+	public boolean isMobUnlocked(String npcName)
+	{
+		List<Drop> table = drops.get(npcName);
+		if (table == null || table.isEmpty())
+		{
+			return true;
+		}
+		for (Drop d : table)
+		{
+			if (cards.containsKey(WikiDropsService.normalize(d.getItemName())))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** An item is usable if it was pulled from a pack or matches an always-unlocked prefix. */
 	public boolean isItemUnlocked(String itemName)
 	{
