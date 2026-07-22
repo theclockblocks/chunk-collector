@@ -133,6 +133,8 @@ public class ChunkTcgPlugin extends Plugin
 	private boolean invSnapshotValid;
 	private Skill recentGatherSkill;
 	private int recentGatherTick = -1000;
+	/** The node the player last clicked (Tree vs Dead tree share tables). */
+	private String lastGatherTarget;
 
 	@Override
 	protected void startUp()
@@ -449,42 +451,44 @@ public class ChunkTcgPlugin extends Plugin
 				continue;
 			}
 			String itemName = itemManager.getItemComposition(e.getKey()).getName();
-			for (String node : zoneMobs)
+			String credited = null;
+			// Prefer the node the player actually clicked
+			if (lastGatherTarget != null && zoneMobs.contains(lastGatherTarget)
+				&& nodeTables.skillOf(lastGatherTarget) == recentGatherSkill
+				&& nodeHasItem(lastGatherTarget, itemName))
 			{
-				if (!nodeTables.isNode(node) || nodeTables.skillOf(node) != recentGatherSkill)
+				credited = lastGatherTarget;
+			}
+			if (credited == null)
+			{
+				for (String node : new java.util.TreeSet<>(zoneMobs))
 				{
-					continue;
-				}
-				List<Drop> table = nodeTables.tableOf(node);
-				boolean inTable = false;
-				for (Drop d : table)
-				{
-					if (d.getItemName().equalsIgnoreCase(itemName))
+					if (nodeTables.isNode(node) && nodeTables.skillOf(node) == recentGatherSkill
+						&& nodeHasItem(node, itemName))
 					{
-						inTable = true;
+						credited = node;
 						break;
 					}
 				}
-				if (!inTable)
-				{
-					continue;
-				}
-				state.addKill(zone, node);
-				if (state.collectItem(zone, node, itemName, e.getKey()))
-				{
-					RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(node));
-					int pts = state.pointsFor(tier);
-					message("Gathered from " + node + ": " + itemName
-						+ " [" + tier.getLabel() + ", +" + pts + " pts]");
-					toastOverlay.push("Collected! +" + pts + " pts", itemName, e.getKey(), tier);
-					for (int zoneId : state.getDiscovered().keySet())
-					{
-						announceClaims(zoneId, state.evaluateZoneClaims(zoneId));
-					}
-				}
-				refreshPanel();
-				break;
 			}
+			if (credited == null)
+			{
+				continue;
+			}
+			state.addKill(zone, credited);
+			if (state.collectItem(zone, credited, itemName, e.getKey()))
+			{
+				RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(credited));
+				int pts = state.pointsFor(tier);
+				message("Gathered from " + credited + ": " + itemName
+					+ " [" + tier.getLabel() + ", +" + pts + " pts]");
+				toastOverlay.push("Collected! +" + pts + " pts", itemName, e.getKey(), tier);
+				for (int zoneId : state.getDiscovered().keySet())
+				{
+					announceClaims(zoneId, state.evaluateZoneClaims(zoneId));
+				}
+			}
+			refreshPanel();
 		}
 	}
 
@@ -640,6 +644,43 @@ public class ChunkTcgPlugin extends Plugin
 			event.consume();
 			message("Blocked — that's in locked zone " + zones.describe(zones.fromWorld(target))
 				+ ". Earn a token and unlock it first!");
+			return;
+		}
+
+		// Remember which skilling node was clicked, so gathers credit the
+		// right one when multiple nodes share a table (Tree vs Dead tree)
+		if (npc != null && nodeTables.isNode(npc.getName()))
+		{
+			lastGatherTarget = npc.getName();
+		}
+		else if (isObjectAction(action))
+		{
+			int objectId = event.getMenuEntry().getIdentifier();
+			String nodeName = nodeNameById.computeIfAbsent(objectId, i ->
+			{
+				String n = client.getObjectDefinition(i).getName();
+				return nodeTables.isNode(n) ? n : "";
+			});
+			if (!nodeName.isEmpty())
+			{
+				lastGatherTarget = nodeName;
+			}
+		}
+	}
+
+	private static boolean isObjectAction(MenuAction action)
+	{
+		switch (action)
+		{
+			case GAME_OBJECT_FIRST_OPTION:
+			case GAME_OBJECT_SECOND_OPTION:
+			case GAME_OBJECT_THIRD_OPTION:
+			case GAME_OBJECT_FOURTH_OPTION:
+			case GAME_OBJECT_FIFTH_OPTION:
+			case WIDGET_TARGET_ON_GAME_OBJECT:
+				return true;
+			default:
+				return false;
 		}
 	}
 
@@ -757,6 +798,12 @@ public class ChunkTcgPlugin extends Plugin
 		state.resetRun();
 		seedAndPrefetch();
 		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
+	}
+
+	private boolean nodeHasItem(String node, String itemName)
+	{
+		List<Drop> table = nodeTables.tableOf(node);
+		return table != null && isOnTable(table, itemName);
 	}
 
 	private static boolean isOnTable(List<Drop> table, String itemName)
