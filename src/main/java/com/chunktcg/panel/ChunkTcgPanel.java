@@ -471,7 +471,7 @@ public class ChunkTcgPanel extends PluginPanel
 		else
 		{
 			// Uncollected: show a grayed-out ghost of the item when resolvable
-			int ghostId = resolveItemId(drop.getItemName());
+			int ghostId = resolveItemId(drop);
 			if (ghostId >= 0)
 			{
 				icon.setText("");
@@ -495,20 +495,39 @@ public class ChunkTcgPanel extends PluginPanel
 		return cell;
 	}
 
-	/** Resolve an item name to an id for ghost icons (tradeables only). */
-	private int resolveItemId(String itemName)
+	/**
+	 * Resolve an item name to an id for ghost icons. ItemManager search only
+	 * covers tradeables; untradeables fall back to the item's wiki-infobox id,
+	 * fetched async — the panel refreshes when it arrives.
+	 */
+	private int resolveItemId(Drop drop)
 	{
-		return itemIdCache.computeIfAbsent(WikiDropsService.normalize(itemName), k ->
+		String itemName = drop.getItemName();
+		String key = WikiDropsService.normalize(itemName);
+		Integer cached = itemIdCache.get(key);
+		if (cached != null)
 		{
-			for (ItemPrice p : itemManager.search(itemName))
+			return cached;
+		}
+		for (ItemPrice p : itemManager.search(itemName))
+		{
+			if (p.getName().equalsIgnoreCase(itemName))
 			{
-				if (p.getName().equalsIgnoreCase(itemName))
-				{
-					return p.getId();
-				}
+				itemIdCache.put(key, p.getId());
+				return p.getId();
 			}
-			return -1;
-		});
+		}
+		Integer wikiId = drops.cachedItemId(itemName);
+		if (wikiId != null)
+		{
+			itemIdCache.put(key, wikiId);
+			return wikiId;
+		}
+		// Unknown: kick off a wiki lookup, keyed by page title since the
+		// in-game name may be a disambiguation page
+		drops.ensureItemIdFetched(drop.wikiPage(), itemName,
+			() -> SwingUtilities.invokeLater(this::refresh));
+		return -1;
 	}
 
 	private static String formatRate(double rate)

@@ -53,9 +53,19 @@ public class WikiDropsService
 	private static final Pattern WIKI_LINK = Pattern.compile("\\[\\[(?:[^\\]|]*\\|)?([^\\]]*)]]");
 	private static final Pattern FRACTION = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:[.,]\\d+)?)");
 
+	private static final File ITEM_IDS_FILE = new File(RuneLite.RUNELITE_DIR, "chunk-tcg/item-ids.json");
+	// Item infobox id param: "|id = 2311" (versioned infoboxes use id1, id2, ...)
+	private static final Pattern INFOBOX_ID = Pattern.compile("(?m)^\\s*\\|\\s*id\\d*\\s*=\\s*(\\d+)");
+
 	private final Map<String, List<Drop>> cache = new ConcurrentHashMap<>();
 	private final Set<String> pending = ConcurrentHashMap.newKeySet();
 	private final Set<String> failed = ConcurrentHashMap.newKeySet();
+
+	/** item name -> infobox item id (-1 = page has no id); persisted to disk. */
+	private final Map<String, Integer> itemIds = new ConcurrentHashMap<>();
+	private final Set<String> itemIdPending = ConcurrentHashMap.newKeySet();
+	private final Set<String> itemIdFailed = ConcurrentHashMap.newKeySet();
+	private volatile boolean itemIdsLoaded;
 
 	@Inject
 	private OkHttpClient okHttpClient;
@@ -244,9 +254,12 @@ public class WikiDropsService
 			}
 			// name= is the wiki page title; alt= is the in-game item name when
 			// they differ (e.g. name=Potion (Apothecary)|alt=Potion). Loot
-			// verification matches in-game names, so prefer alt.
+			// verification matches in-game names, so prefer alt — but keep the
+			// page title for wiki lookups (the in-game name may be a disambig).
+			String page = null;
 			if (alt != null && !alt.isEmpty())
 			{
+				page = name;
 				name = alt;
 			}
 			if (name == null || name.isEmpty())
@@ -265,12 +278,144 @@ public class WikiDropsService
 			Drop existing = byName.get(nkey);
 			if (existing == null || rate > existing.getRate())
 			{
-				byName.put(nkey, new Drop(name, rate));
+				byName.put(nkey, new Drop(name, rate, page));
 			}
 		}
 		// {{DropsLineClue}} lines are deliberately ignored — clue scrolls are
 		// global RNG rewards, not per-mob collectibles
 		return new ArrayList<>(byName.values());
+	}
+
+	// ---- item id lookup (icon fallback for untradeables) ----
+
+	/**
+	 * Item id from the item's wiki infobox: null = never looked up,
+	 * -1 = looked up but the page has no id.
+	 */
+	public Integer cachedItemId(String itemName)
+	{
+		loadItemIds();
+		return itemIds.get(normalize(itemName));
+	}
+
+	/**
+	 * Ensure the item's wiki-infobox id is available, fetching the item page if
+	 * needed. onUpdate runs (on an OkHttp thread) after a successful lookup.
+	 */
+	public void ensureItemIdFetched(String pageName, String itemName, Runnable onUpdate)
+	{
+		loadItemIds();
+		String key = normalize(itemName);
+		if (itemIds.containsKey(key) || itemIdFailed.contains(key) || !itemIdPending.add(key))
+		{
+			return;
+		}
+
+		HttpUrl url = HttpUrl.get(WIKI_API).newBuilder()
+			.addQueryParameter("action", "parse")
+			.addQueryParameter("format", "json")
+			.addQueryParameter("prop", "wikitext")
+			.addQueryParameter("redirects", "1")
+			.addQueryParameter("page", pageName)
+			.build();
+
+		Request request = new Request.Builder()
+			.url(url)
+			.header("User-Agent", "chunk-tcg-runelite-plugin")
+			.build();
+
+		okHttpClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.debug("Wiki item id fetch failed for {}", pageName, e);
+				itemIdPending.remove(key);
+				itemIdFailed.add(key);
+			}
+
+			@Override
+			public void onResponse(Call call, Response response) throws IOException
+			{
+				try (Response r = response)
+				{
+					if (!r.isSuccessful() || r.body() == null)
+					{
+						itemIdPending.remove(key);
+						itemIdFailed.add(key);
+						return;
+					}
+					JsonObject root = gson.fromJson(r.body().string(), JsonObject.class);
+					int id = -1;
+					if (root != null && root.has("parse"))
+					{
+						id = parseInfoboxItemId(root.getAsJsonObject("parse")
+							.getAsJsonObject("wikitext")
+							.get("*").getAsString());
+					}
+					itemIds.put(key, id);
+					saveItemIds();
+					itemIdPending.remove(key);
+					log.debug("Resolved item id {} for {}", id, itemName);
+					onUpdate.run();
+				}
+				catch (Exception e)
+				{
+					log.debug("Wiki item id parse failed for {}", pageName, e);
+					itemIdPending.remove(key);
+					itemIdFailed.add(key);
+				}
+			}
+		});
+	}
+
+	/** First infobox id on the page, or -1 if there is none. */
+	static int parseInfoboxItemId(String wikitext)
+	{
+		Matcher m = INFOBOX_ID.matcher(wikitext);
+		return m.find() ? Integer.parseInt(m.group(1)) : -1;
+	}
+
+	private synchronized void loadItemIds()
+	{
+		if (itemIdsLoaded)
+		{
+			return;
+		}
+		itemIdsLoaded = true;
+		if (!ITEM_IDS_FILE.exists())
+		{
+			return;
+		}
+		try
+		{
+			String json = new String(Files.readAllBytes(ITEM_IDS_FILE.toPath()), StandardCharsets.UTF_8);
+			Type type = new TypeToken<Map<String, Integer>>()
+			{
+			}.getType();
+			Map<String, Integer> loaded = gson.fromJson(json, type);
+			if (loaded != null)
+			{
+				itemIds.putAll(loaded);
+			}
+		}
+		catch (Exception e)
+		{
+			log.debug("Failed reading item id cache", e);
+		}
+	}
+
+	private synchronized void saveItemIds()
+	{
+		try
+		{
+			ITEM_IDS_FILE.getParentFile().mkdirs();
+			Files.write(ITEM_IDS_FILE.toPath(), gson.toJson(itemIds).getBytes(StandardCharsets.UTF_8));
+		}
+		catch (IOException e)
+		{
+			log.debug("Failed writing item id cache", e);
+		}
 	}
 
 	private static boolean hasConditionalRef(String dropsLineBody)

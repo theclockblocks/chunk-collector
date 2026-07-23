@@ -104,6 +104,21 @@ public class WikiDropsParseTest
 				+ "|rarity=1/128|gemw=No}}");
 		assertEquals(1, drops.size());
 		assertEquals("Potion", drops.get(0).getItemName());
+		// The page title is kept for wiki lookups (in-game name is a disambig)
+		assertEquals("Potion (Apothecary)", drops.get(0).getPageName());
+		assertEquals("Potion (Apothecary)", drops.get(0).wikiPage());
+	}
+
+	@Test
+	public void parsesInfoboxItemId()
+	{
+		assertEquals(2311, WikiDropsService.parseInfoboxItemId(
+			"{{Infobox Item\n|name = Burnt bread\n|id = 2311\n|tradeable = No\n}}"));
+		// Versioned infoboxes number their ids
+		assertEquals(195, WikiDropsService.parseInfoboxItemId(
+			"{{Infobox Item\n|name = Potion\n|id1 = 195\n|id2 = 196\n}}"));
+		assertEquals(-1, WikiDropsService.parseInfoboxItemId(
+			"Some disambiguation page with no infobox."));
 	}
 
 	@Test
