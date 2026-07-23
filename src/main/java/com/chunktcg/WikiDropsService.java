@@ -422,33 +422,75 @@ public class WikiDropsService
 	}
 
 	/**
-	 * Some pages split drops into variants via dropversion (e.g. Rat: "Regular"
-	 * vs "Stronghold of Security" — regular rats drop nothing). When more than
-	 * one version exists, keep only the first (primary) version's tables.
-	 * Pages with a single or no version (e.g. Goblin's two combat-level tables)
-	 * are scanned whole, merging all lines as before.
+	 * Some pages split drops into dropversion variants. Which versions matter
+	 * differs per page: on Rat, ~56 variant declarations use "Regular" and 2
+	 * use "Stronghold of Security" (a fringe variant whose Bones line must not
+	 * leak onto regular rats), while on Goblin both "Drop table 1" and
+	 * "Drop table 2" are used by many overworld variants and must merge.
+	 * Every dropversion= declaration (infobox variants and table heads) is a
+	 * vote; versions polling under 20% of the most-common one are fringe and
+	 * their tables are excluded. Unversioned pages are scanned whole.
 	 */
 	static String selectDropVersion(String wikitext)
 	{
+		Map<String, Integer> votes = new HashMap<>();
+		Matcher vm = DROP_VERSION.matcher(wikitext);
+		while (vm.find())
+		{
+			// a variant may use several tables: "Drop table 1, Drop table 2"
+			for (String label : vm.group(1).split(","))
+			{
+				String norm = normalize(label);
+				if (!norm.isEmpty())
+				{
+					votes.merge(norm, 1, Integer::sum);
+				}
+			}
+		}
+		if (votes.size() < 2)
+		{
+			return wikitext;
+		}
+		int max = 0;
+		for (int v : votes.values())
+		{
+			max = Math.max(max, v);
+		}
+		Set<String> included = new HashSet<>();
+		for (Map.Entry<String, Integer> e : votes.entrySet())
+		{
+			if (e.getValue() * 5 >= max)
+			{
+				included.add(e.getKey());
+			}
+		}
+		if (included.size() == votes.size())
+		{
+			return wikitext;
+		}
+		StringBuilder kept = new StringBuilder();
 		Matcher block = DROPS_TABLE_BLOCK.matcher(wikitext);
-		String firstVersion = null;
-		Set<String> versions = new HashSet<>();
-		StringBuilder firstVersionBlocks = new StringBuilder();
 		while (block.find())
 		{
 			Matcher v = DROP_VERSION.matcher(block.group(1));
-			String version = v.find() ? normalize(v.group(1)) : "";
-			versions.add(version);
-			if (firstVersion == null)
+			boolean keep = true;
+			if (v.find())
 			{
-				firstVersion = version;
+				keep = false;
+				for (String label : v.group(1).split(","))
+				{
+					if (included.contains(normalize(label)))
+					{
+						keep = true;
+					}
+				}
 			}
-			if (version.equals(firstVersion))
+			if (keep)
 			{
-				firstVersionBlocks.append(block.group(2)).append('\n');
+				kept.append(block.group(2)).append('\n');
 			}
 		}
-		return versions.size() > 1 ? firstVersionBlocks.toString() : wikitext;
+		return kept.toString();
 	}
 
 	private static boolean hasConditionalRef(String dropsLineBody)

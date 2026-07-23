@@ -122,12 +122,17 @@ public class WikiDropsParseTest
 	}
 
 	@Test
-	public void keepsOnlyPrimaryDropVersion()
+	public void excludesFringeDropVersion()
 	{
-		// Condensed from the real Rat page: regular rats' lines are all
-		// conditional; the Bones line belongs to the Stronghold version only
+		// Condensed from the real Rat page: most variant declarations use
+		// Regular, so the Stronghold-only Bones line must not leak onto
+		// regular rats (whose own lines are all conditional)
 		List<Drop> drops = WikiDropsService.parseWikitext(
-			"{{DropsTableHead|dropversion=Regular}}\n"
+			"|dropversion = Regular\n|dropversion = Regular\n"
+				+ "|dropversion = Regular\n|dropversion = Regular\n"
+				+ "|dropversion = Regular\n|dropversion = Regular\n"
+				+ "|dropversion = Regular\n|dropversion = Regular\n"
+				+ "{{DropsTableHead|dropversion=Regular}}\n"
 				+ "{{DropsLine|name=Rat's tail|quantity=1|rarity=Always"
 				+ "|raritynotes=<ref group=d>Rat's tails is only dropped during "
 				+ "[[Witch's Potion]].</ref>|gemw=No}}\n"
@@ -136,6 +141,25 @@ public class WikiDropsParseTest
 				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
 				+ "{{DropsTableBottom}}");
 		assertEquals(0, drops.size());
+	}
+
+	@Test
+	public void mergesBalancedDropVersions()
+	{
+		// Condensed from the real Goblin page: both drop tables are used by
+		// many overworld variants, so their tables must merge
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"|dropversion = Drop table 1\n|dropversion = Drop table 2\n"
+				+ "|dropversion = Drop table 2\n"
+				+ "|dropversion = Drop table 1,Drop table 2\n"
+				+ "|dropversion = Drop table 1, Drop table 2\n"
+				+ "{{DropsTableHead|dropversion=Drop table 1}}\n"
+				+ "{{DropsLine|name=Chef's hat|quantity=1|rarity=3/128}}\n"
+				+ "{{DropsTableBottom}}\n"
+				+ "{{DropsTableHead|dropversion=Drop table 2}}\n"
+				+ "{{DropsLine|name=Tin ore|quantity=1|rarity=1/128}}\n"
+				+ "{{DropsTableBottom}}");
+		assertEquals(2, drops.size());
 	}
 
 	@Test
