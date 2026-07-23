@@ -83,22 +83,15 @@ public class WikiDropsParseTest
 	}
 
 	@Test
-	public void parsesClueLines()
+	public void skipsClueLines()
 	{
+		// Clue scrolls are global RNG rewards, not per-mob collectibles
 		List<Drop> drops = WikiDropsService.parseWikitext(
 			"{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
-				+ "{{DropsLineClue|type=beginner|rarity=1/128}}");
-		assertEquals(2, drops.size());
-		boolean found = false;
-		for (Drop d : drops)
-		{
-			if (d.getItemName().equals("Clue scroll (beginner)"))
-			{
-				found = true;
-				assertEquals(1.0 / 128, d.getRate(), 1e-9);
-			}
-		}
-		org.junit.Assert.assertTrue(found);
+				+ "{{DropsLineClue|type=beginner|rarity=1/128}}\n"
+				+ "{{DropsLineClue|type=easy|rarity=1/128|f2p=yes}}");
+		assertEquals(1, drops.size());
+		assertEquals("Bones", drops.get(0).getItemName());
 	}
 
 	@Test
