@@ -46,6 +46,11 @@ public class WikiDropsService
 	private static final Pattern DROPS_LINE_CLUE = Pattern.compile("\\{\\{DropsLineClue\\|((?:[^{}]|\\{\\{[^{}]*}})*)}}");
 	private static final Pattern NESTED_TEMPLATE = Pattern.compile("\\{\\{[^{}]*}}");
 	private static final Pattern REF_TAG = Pattern.compile("<ref[^>]*+(?:/>|>.*?</ref>)", Pattern.DOTALL);
+	private static final Pattern MEMBERS_TAG = Pattern.compile("\\{\\{\\s*\\(m\\)\\s*}}");
+	// Ref notes marking a drop as conditional (quest-only, skill/task requirement,
+	// members gate) vs. benign notes like "Colour depends on the mail worn"
+	private static final Pattern CONDITIONAL_REF = Pattern.compile(
+		"only|requir|during|quest|task|member|unlock|complet", Pattern.CASE_INSENSITIVE);
 	private static final Pattern WIKI_LINK = Pattern.compile("\\[\\[(?:[^\\]|]*\\|)?([^\\]]*)]]");
 	private static final Pattern FRACTION = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:[.,]\\d+)?)");
 
@@ -199,9 +204,17 @@ public class WikiDropsService
 		Matcher m = DROPS_LINE.matcher(wikitext);
 		while (m.find())
 		{
+			// Members-locked ({{(m)}}) and conditional drops (only while on a
+			// quest/task, skill requirements) can't be collected in normal play
+			// and would block zone completion — keep them out of the pool
+			String raw = m.group(1);
+			if (MEMBERS_TAG.matcher(raw).find() || hasConditionalRef(raw))
+			{
+				continue;
+			}
 			// Strip refs, nested templates and wiki-link syntax so pipes inside
 			// them don't break param splitting
-			String body = REF_TAG.matcher(m.group(1)).replaceAll("");
+			String body = REF_TAG.matcher(raw).replaceAll("");
 			body = NESTED_TEMPLATE.matcher(body).replaceAll("");
 			body = WIKI_LINK.matcher(body).replaceAll("$1");
 
@@ -281,6 +294,19 @@ public class WikiDropsService
 			}
 		}
 		return new ArrayList<>(byName.values());
+	}
+
+	private static boolean hasConditionalRef(String dropsLineBody)
+	{
+		Matcher refs = REF_TAG.matcher(dropsLineBody);
+		while (refs.find())
+		{
+			if (CONDITIONAL_REF.matcher(refs.group()).find())
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	static double parseRarity(String rarity)
