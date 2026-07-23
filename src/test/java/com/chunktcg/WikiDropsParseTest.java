@@ -122,6 +122,38 @@ public class WikiDropsParseTest
 	}
 
 	@Test
+	public void keepsOnlyPrimaryDropVersion()
+	{
+		// Condensed from the real Rat page: regular rats' lines are all
+		// conditional; the Bones line belongs to the Stronghold version only
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"{{DropsTableHead|dropversion=Regular}}\n"
+				+ "{{DropsLine|name=Rat's tail|quantity=1|rarity=Always"
+				+ "|raritynotes=<ref group=d>Rat's tails is only dropped during "
+				+ "[[Witch's Potion]].</ref>|gemw=No}}\n"
+				+ "{{DropsTableBottom}}\n"
+				+ "{{DropsTableHead|dropversion=Stronghold of Security}}\n"
+				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
+				+ "{{DropsTableBottom}}");
+		assertEquals(0, drops.size());
+	}
+
+	@Test
+	public void mergesUnversionedTables()
+	{
+		// Pages like Goblin have several tables (per combat level) with no
+		// dropversion — those still merge
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"{{DropsTableHead}}\n"
+				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
+				+ "{{DropsTableBottom}}\n"
+				+ "{{DropsTableHead}}\n"
+				+ "{{DropsLine|name=Hammer|quantity=1|rarity=15/128}}\n"
+				+ "{{DropsTableBottom}}");
+		assertEquals(2, drops.size());
+	}
+
+	@Test
 	public void keepsHighestRateForDuplicates()
 	{
 		List<Drop> drops = WikiDropsService.parseWikitext(

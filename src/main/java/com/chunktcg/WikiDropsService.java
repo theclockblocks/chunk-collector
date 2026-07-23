@@ -52,6 +52,9 @@ public class WikiDropsService
 		"only|requir|during|quest|task|member|unlock|complet", Pattern.CASE_INSENSITIVE);
 	private static final Pattern WIKI_LINK = Pattern.compile("\\[\\[(?:[^\\]|]*\\|)?([^\\]]*)]]");
 	private static final Pattern FRACTION = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:[.,]\\d+)?)");
+	private static final Pattern DROPS_TABLE_BLOCK = Pattern.compile(
+		"\\{\\{DropsTableHead([^{}]*)}}(.*?)(?:\\{\\{DropsTableBottom}}|$)", Pattern.DOTALL);
+	private static final Pattern DROP_VERSION = Pattern.compile("dropversion\\s*=\\s*([^|}\\n]*)");
 
 	private static final File ITEM_IDS_FILE = new File(RuneLite.RUNELITE_DIR, "chunk-tcg/item-ids.json");
 	// Item infobox id param: "|id = 2311" (versioned infoboxes use id1, id2, ...)
@@ -210,7 +213,7 @@ public class WikiDropsService
 	static List<Drop> parseWikitext(String wikitext)
 	{
 		Map<String, Drop> byName = new HashMap<>();
-		Matcher m = DROPS_LINE.matcher(wikitext);
+		Matcher m = DROPS_LINE.matcher(selectDropVersion(wikitext));
 		while (m.find())
 		{
 			// Members-locked ({{(m)}}) and conditional drops (only while on a
@@ -416,6 +419,36 @@ public class WikiDropsService
 		{
 			log.debug("Failed writing item id cache", e);
 		}
+	}
+
+	/**
+	 * Some pages split drops into variants via dropversion (e.g. Rat: "Regular"
+	 * vs "Stronghold of Security" — regular rats drop nothing). When more than
+	 * one version exists, keep only the first (primary) version's tables.
+	 * Pages with a single or no version (e.g. Goblin's two combat-level tables)
+	 * are scanned whole, merging all lines as before.
+	 */
+	static String selectDropVersion(String wikitext)
+	{
+		Matcher block = DROPS_TABLE_BLOCK.matcher(wikitext);
+		String firstVersion = null;
+		Set<String> versions = new HashSet<>();
+		StringBuilder firstVersionBlocks = new StringBuilder();
+		while (block.find())
+		{
+			Matcher v = DROP_VERSION.matcher(block.group(1));
+			String version = v.find() ? normalize(v.group(1)) : "";
+			versions.add(version);
+			if (firstVersion == null)
+			{
+				firstVersion = version;
+			}
+			if (version.equals(firstVersion))
+			{
+				firstVersionBlocks.append(block.group(2)).append('\n');
+			}
+		}
+		return versions.size() > 1 ? firstVersionBlocks.toString() : wikitext;
 	}
 
 	private static boolean hasConditionalRef(String dropsLineBody)
