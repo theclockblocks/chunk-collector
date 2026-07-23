@@ -218,6 +218,7 @@ public class WikiDropsService
 			body = WIKI_LINK.matcher(body).replaceAll("$1");
 
 			String name = null;
+			String alt = null;
 			String rarity = null;
 			for (String param : body.split("\\|"))
 			{
@@ -232,10 +233,21 @@ public class WikiDropsService
 				{
 					name = v;
 				}
+				else if (k.equals("alt"))
+				{
+					alt = v;
+				}
 				else if (k.equals("rarity"))
 				{
 					rarity = v;
 				}
+			}
+			// name= is the wiki page title; alt= is the in-game item name when
+			// they differ (e.g. name=Potion (Apothecary)|alt=Potion). Loot
+			// verification matches in-game names, so prefer alt.
+			if (alt != null && !alt.isEmpty())
+			{
+				name = alt;
 			}
 			if (name == null || name.isEmpty())
 			{

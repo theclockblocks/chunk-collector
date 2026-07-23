@@ -95,6 +95,18 @@ public class WikiDropsParseTest
 	}
 
 	@Test
+	public void prefersAltNameOverPageName()
+	{
+		// Real line from the Imp page: name= is the disambiguated wiki page
+		// title, alt= is the actual in-game item name
+		List<Drop> drops = WikiDropsService.parseWikitext(
+			"{{DropsLine|name=Potion (Apothecary)|alt=Potion|quantity=1"
+				+ "|rarity=1/128|gemw=No}}");
+		assertEquals(1, drops.size());
+		assertEquals("Potion", drops.get(0).getItemName());
+	}
+
+	@Test
 	public void keepsHighestRateForDuplicates()
 	{
 		List<Drop> drops = WikiDropsService.parseWikitext(
