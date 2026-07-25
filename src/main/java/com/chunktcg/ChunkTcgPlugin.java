@@ -475,8 +475,8 @@ public class ChunkTcgPlugin extends Plugin
 			{
 				continue;
 			}
-			state.addKill(zone, credited);
-			if (state.collectItem(zone, credited, itemName, e.getKey()))
+			state.addKill(credited);
+			if (state.collectItem(credited, itemName, e.getKey()))
 			{
 				RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(credited));
 				int pts = state.pointsFor(tier);
@@ -528,7 +528,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		state.discoverNpc(chunk, name);
-		state.addKill(chunk, name);
+		state.addKill(name);
 		refreshPanel();
 	}
 
@@ -821,7 +821,7 @@ public class ChunkTcgPlugin extends Plugin
 	/** Record a verified table drop, announce it, and re-evaluate zone claims. */
 	private void creditCollection(int zone, String mob, String itemName, int itemId)
 	{
-		if (state.collectItem(zone, mob, itemName, itemId))
+		if (state.collectItem(mob, itemName, itemId))
 		{
 			// Rarity from THIS mob's table — the same item can differ per mob
 			RarityTier tier = drops.tierFor(itemName, java.util.Collections.singleton(mob));
