@@ -394,7 +394,7 @@ public class ChunkTcgPanel extends PluginPanel
 
 	private void addMobSection(String npc)
 	{
-		List<Drop> cached = drops.get(npc);
+		List<Drop> cached = state.effectiveTable(npc);
 		if (cached != null && cached.isEmpty())
 		{
 			// Known to drop nothing — nothing to collect, no log entry

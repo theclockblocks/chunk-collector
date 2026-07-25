@@ -34,6 +34,7 @@ public class TcgStateService
 	private static final String KEY_LOCKED_THRESHOLD = "lockedThreshold";
 	private static final String KEY_KILLS = "killCounts";
 	private static final String KEY_LOCKED_GOAL = "lockedGoal";
+	private static final String KEY_SEEN_VERSIONS = "seenDropVersions";
 	private static final String KEY_GOAL_COMPLETE = "goalComplete";
 	private static final String KEY_CHALLENGES_DONE = "challengesDone";
 	private static final String KEY_CHALLENGE_TOKENS = "challengeTokensGranted";
@@ -77,6 +78,14 @@ public class TcgStateService
 	/** lower mob name -> counted kills (in unlocked zones only), global. */
 	@Getter
 	private final Map<String, Integer> killCounts = new ConcurrentHashMap<>();
+
+	/**
+	 * lower mob name -> wiki dropversion labels of variants actually seen.
+	 * Lumbridge goblins only ever show Drop table 1; sighting an armed cave
+	 * goblin later grows the log with Drop table 2.
+	 */
+	@Getter
+	private final Map<String, Set<String>> seenVersions = new ConcurrentHashMap<>();
 
 	/** zoneId -> claim bitmask (threshold reached / 100% completed). */
 	@Getter
@@ -251,6 +260,24 @@ public class TcgStateService
 			}
 		}
 
+		String seenJson = configManager.getRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_SEEN_VERSIONS);
+		if (seenJson != null && !seenJson.isEmpty())
+		{
+			Type t = new TypeToken<Map<String, Set<String>>>()
+			{
+			}.getType();
+			Map<String, Set<String>> saved = gson.fromJson(seenJson, t);
+			if (saved != null)
+			{
+				for (Map.Entry<String, Set<String>> e : saved.entrySet())
+				{
+					Set<String> copy = ConcurrentHashMap.newKeySet();
+					copy.addAll(e.getValue());
+					seenVersions.put(e.getKey(), copy);
+				}
+			}
+		}
+
 		zoneTokens = getIntKey(KEY_TOKENS);
 		violations = getIntKey(KEY_VIOLATIONS);
 		lockedThreshold = getIntKey(KEY_LOCKED_THRESHOLD);
@@ -292,6 +319,7 @@ public class TcgStateService
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_COLLECTED, gson.toJson(collected));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_CLAIMS, gson.toJson(zoneClaims));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_KILLS, gson.toJson(killCounts));
+		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_SEEN_VERSIONS, gson.toJson(seenVersions));
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_TOKENS, zoneTokens);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_VIOLATIONS, violations);
 		configManager.setRSProfileConfiguration(ChunkTcgConfig.GROUP, KEY_LOCKED_THRESHOLD, lockedThreshold);
@@ -385,6 +413,7 @@ public class TcgStateService
 		collected.clear();
 		zoneClaims.clear();
 		killCounts.clear();
+		seenVersions.clear();
 		completedChallenges.clear();
 		zoneTokens = 0;
 		violations = 0;
@@ -552,6 +581,35 @@ public class TcgStateService
 		return kc == null ? 0 : kc;
 	}
 
+	/**
+	 * Record which wiki dropversions of a mob the player has encountered
+	 * (from the NPC id). Returns true if a new variant was recorded.
+	 */
+	public boolean recordSeenVersions(String mobName, Set<String> labels)
+	{
+		if (labels == null || labels.isEmpty())
+		{
+			return false;
+		}
+		Set<String> set = seenVersions.computeIfAbsent(
+			WikiDropsService.normalize(mobName), k -> ConcurrentHashMap.newKeySet());
+		boolean changed = set.addAll(labels);
+		if (changed)
+		{
+			save();
+		}
+		return changed;
+	}
+
+	/**
+	 * The mob's drop table narrowed to variants the player has actually seen
+	 * (falls back to the wiki's major versions until one is seen).
+	 */
+	public List<Drop> effectiveTable(String mobName)
+	{
+		return drops.getForVersions(mobName, seenVersions.get(WikiDropsService.normalize(mobName)));
+	}
+
 	public void addViolation()
 	{
 		violations++;
@@ -600,7 +658,7 @@ public class TcgStateService
 		int total = 0;
 		for (String mob : npcs)
 		{
-			List<Drop> table = drops.get(mob);
+			List<Drop> table = effectiveTable(mob);
 			if (table == null)
 			{
 				continue;

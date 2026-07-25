@@ -326,11 +326,19 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
+		// Record which wiki variant this id belongs to (Goblin table 1 vs 2)
+		final int npcId = npc.getId();
+		if (state.recordSeenVersions(name, drops.versionsFor(name, npcId)))
+		{
+			refreshPanel();
+		}
 		if (state.discoverNpc(zone, name))
 		{
 			drops.ensureFetched(name, () ->
 			{
-				List<Drop> table = drops.get(name);
+				// Table data may only now be available — map the id to its variant
+				state.recordSeenVersions(name, drops.versionsFor(name, npcId));
+				List<Drop> table = state.effectiveTable(name);
 				if (table != null && !table.isEmpty())
 				{
 					clientThread.invoke(() -> message("Sighted " + name
@@ -528,6 +536,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		state.discoverNpc(chunk, name);
+		state.recordSeenVersions(name, drops.versionsFor(name, npc.getId()));
 		state.addKill(name);
 		refreshPanel();
 	}
@@ -568,13 +577,17 @@ public class ChunkTcgPlugin extends Plugin
 		}
 
 		state.discoverNpc(chunk, name);
+		state.recordSeenVersions(name, drops.versionsFor(name, npc.getId()));
+		final int npcId = npc.getId();
 		drops.ensureFetched(name, () ->
 		{
+			// Map the id to its variant now that the page data exists
+			state.recordSeenVersions(name, drops.versionsFor(name, npcId));
 			processPendingLoot();
 			refreshPanel();
 		});
 
-		List<Drop> mobTable = drops.get(name);
+		List<Drop> mobTable = state.effectiveTable(name);
 		for (ItemStack stack : event.getItems())
 		{
 			int canonicalId = itemManager.canonicalize(stack.getId());
@@ -841,7 +854,7 @@ public class ChunkTcgPlugin extends Plugin
 			for (java.util.Iterator<PendingLoot> it = pendingLoot.iterator(); it.hasNext(); )
 			{
 				PendingLoot p = it.next();
-				if (drops.get(p.mob) != null)
+				if (state.effectiveTable(p.mob) != null)
 				{
 					ready.add(p);
 					it.remove();
@@ -854,7 +867,7 @@ public class ChunkTcgPlugin extends Plugin
 		}
 		for (PendingLoot p : ready)
 		{
-			List<Drop> table = drops.get(p.mob);
+			List<Drop> table = state.effectiveTable(p.mob);
 			if (table != null && isOnTable(table, p.itemName))
 			{
 				creditCollection(p.zone, p.mob, p.itemName, p.itemId);

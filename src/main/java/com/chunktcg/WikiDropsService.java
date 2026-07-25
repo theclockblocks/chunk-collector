@@ -60,7 +60,11 @@ public class WikiDropsService
 	// Item infobox id param: "|id = 2311" (versioned infoboxes use id1, id2, ...)
 	private static final Pattern INFOBOX_ID = Pattern.compile("(?m)^\\s*\\|\\s*id\\d*\\s*=\\s*(\\d+)");
 
-	private final Map<String, List<Drop>> cache = new ConcurrentHashMap<>();
+	// Infobox NPC id lists per version index: "|id1 = 3028,3029,..."
+	private static final Pattern INFOBOX_NPC_IDS = Pattern.compile("(?m)^\\s*\\|\\s*id(\\d*)\\s*=\\s*([0-9,\\s]+)$");
+	private static final Pattern INFOBOX_DROPVERSION = Pattern.compile("(?m)^\\s*\\|\\s*dropversion(\\d*)\\s*=\\s*([^|{}\\n]+)");
+
+	private final Map<String, WikiMobData> cache = new ConcurrentHashMap<>();
 	private final Set<String> pending = ConcurrentHashMap.newKeySet();
 	private final Set<String> failed = ConcurrentHashMap.newKeySet();
 
@@ -81,9 +85,17 @@ public class WikiDropsService
 
 	/**
 	 * Returns the cached drop table: null means unknown (not fetched yet),
-	 * an empty list means the NPC is known to have no drops.
+	 * an empty list means the NPC is known to have no drops. Uses the
+	 * major-versions fallback; prefer TcgStateService.effectiveTable which
+	 * narrows to the variants actually seen.
 	 */
 	public List<Drop> get(String npcName)
+	{
+		return getForVersions(npcName, null);
+	}
+
+	/** The mob's table narrowed to the given seen dropversions (null = majors). */
+	public List<Drop> getForVersions(String npcName, Set<String> seenVersions)
 	{
 		// Skilling nodes have curated tables — no wiki involved
 		List<Drop> nodeTable = nodeTables.tableOf(npcName);
@@ -91,14 +103,32 @@ public class WikiDropsService
 		{
 			return nodeTable;
 		}
+		WikiMobData data = dataFor(npcName);
+		return data == null ? null : data.flatten(seenVersions);
+	}
+
+	/** dropversion labels for a specific NPC id; empty when unmapped/unfetched. */
+	public Set<String> versionsFor(String npcName, int npcId)
+	{
+		WikiMobData data = dataFor(npcName);
+		return data == null ? java.util.Collections.emptySet() : parseMobDataVersions(data, npcId);
+	}
+
+	static Set<String> parseMobDataVersions(WikiMobData data, int npcId)
+	{
+		List<String> labels = data.getVersionsById().get(String.valueOf(npcId));
+		return labels == null ? java.util.Collections.emptySet() : new HashSet<>(labels);
+	}
+
+	private WikiMobData dataFor(String npcName)
+	{
 		String key = normalize(npcName);
-		List<Drop> cached = cache.get(key);
+		WikiMobData cached = cache.get(key);
 		if (cached != null)
 		{
 			return cached;
 		}
-
-		List<Drop> fromDisk = loadFromDisk(key);
+		WikiMobData fromDisk = loadFromDisk(key);
 		if (fromDisk != null)
 		{
 			cache.put(key, fromDisk);
@@ -136,7 +166,7 @@ public class WikiDropsService
 			return;
 		}
 
-		List<Drop> diskCached = loadFromDisk(key);
+		WikiMobData diskCached = loadFromDisk(key);
 		if (diskCached != null)
 		{
 			cache.put(key, diskCached);
@@ -180,11 +210,12 @@ public class WikiDropsService
 						return;
 					}
 					String body = r.body().string();
-					List<Drop> drops = parseDrops(body);
-					cache.put(key, drops);
-					saveToDisk(key, drops);
+					WikiMobData data = parseMobDataResponse(body);
+					cache.put(key, data);
+					saveToDisk(key, data);
 					pending.remove(key);
-					log.debug("Fetched {} drops for {}", drops.size(), npcName);
+					log.debug("Fetched {} drops ({} versions) for {}",
+						data.flatten(null).size(), data.getTablesByVersion().size(), npcName);
 					onUpdate.run();
 				}
 				catch (Exception e)
@@ -197,23 +228,153 @@ public class WikiDropsService
 		});
 	}
 
-	private List<Drop> parseDrops(String apiResponseJson)
+	private WikiMobData parseMobDataResponse(String apiResponseJson)
 	{
 		JsonObject root = gson.fromJson(apiResponseJson, JsonObject.class);
 		if (root == null || !root.has("parse"))
 		{
-			return new ArrayList<>();
+			return new WikiMobData();
 		}
 		String wikitext = root.getAsJsonObject("parse")
 			.getAsJsonObject("wikitext")
 			.get("*").getAsString();
-		return parseWikitext(wikitext);
+		return parseMobData(wikitext);
 	}
 
+	/** Test/back-compat view: baseline plus major versions, flattened. */
 	static List<Drop> parseWikitext(String wikitext)
 	{
+		return parseMobData(wikitext).flatten(null);
+	}
+
+	/**
+	 * Parses per-dropversion tables, the infobox NPC-id-to-version mapping,
+	 * and a vote-based major-version fallback (see Rat vs Goblin note below).
+	 */
+	static WikiMobData parseMobData(String wikitext)
+	{
+		WikiMobData data = new WikiMobData();
+
+		// Per-version tables from DropsTableHead...DropsTableBottom blocks;
+		// what remains outside blocks is the unversioned baseline
+		StringBuffer outside = new StringBuffer();
+		Matcher block = DROPS_TABLE_BLOCK.matcher(wikitext);
+		while (block.find())
+		{
+			Set<String> labels = new HashSet<>();
+			Matcher v = DROP_VERSION.matcher(block.group(1));
+			if (v.find())
+			{
+				for (String label : v.group(1).split(","))
+				{
+					String norm = normalize(label);
+					if (!norm.isEmpty())
+					{
+						labels.add(norm);
+					}
+				}
+			}
+			List<Drop> drops = parseDropLines(block.group(2));
+			if (labels.isEmpty())
+			{
+				mergeVersion(data, "", drops);
+			}
+			else
+			{
+				for (String label : labels)
+				{
+					mergeVersion(data, label, drops);
+				}
+			}
+			block.appendReplacement(outside, "");
+		}
+		block.appendTail(outside);
+		String outsideText = outside.toString();
+		mergeVersion(data, "", parseDropLines(outsideText));
+
+		// Infobox: idN lists map NPC ids to dropversionN labels (unnumbered
+		// dropversion applies to versions without their own). Table heads are
+		// already stripped, so their dropversion params can't interfere.
+		Map<String, List<String>> idsByIdx = new HashMap<>();
+		Matcher idm = INFOBOX_NPC_IDS.matcher(outsideText);
+		while (idm.find())
+		{
+			List<String> ids = new ArrayList<>();
+			for (String s : idm.group(2).split(","))
+			{
+				s = s.trim();
+				if (!s.isEmpty())
+				{
+					ids.add(s);
+				}
+			}
+			idsByIdx.put(idm.group(1), ids);
+		}
+		Map<String, List<String>> labelsByIdx = new HashMap<>();
+		Matcher dvm = INFOBOX_DROPVERSION.matcher(outsideText);
+		while (dvm.find())
+		{
+			List<String> labels = new ArrayList<>();
+			for (String label : dvm.group(2).split(","))
+			{
+				String norm = normalize(label);
+				if (!norm.isEmpty())
+				{
+					labels.add(norm);
+				}
+			}
+			labelsByIdx.put(dvm.group(1), labels);
+		}
+		for (Map.Entry<String, List<String>> e : idsByIdx.entrySet())
+		{
+			List<String> labels = labelsByIdx.getOrDefault(e.getKey(), labelsByIdx.get(""));
+			if (labels == null)
+			{
+				continue;
+			}
+			for (String id : e.getValue())
+			{
+				data.getVersionsById().put(id, labels);
+			}
+		}
+
+		data.setMajorVersions(voteMajorVersions(wikitext, data));
+		return data;
+	}
+
+	private static void mergeVersion(WikiMobData data, String label, List<Drop> drops)
+	{
+		if (drops.isEmpty())
+		{
+			return;
+		}
+		List<Drop> list = data.getTablesByVersion().computeIfAbsent(label, k -> new ArrayList<>());
+		for (Drop d : drops)
+		{
+			Drop existing = null;
+			for (Drop x : list)
+			{
+				if (normalize(x.getItemName()).equals(normalize(d.getItemName())))
+				{
+					existing = x;
+					break;
+				}
+			}
+			if (existing == null)
+			{
+				list.add(d);
+			}
+			else if (d.getRate() > existing.getRate())
+			{
+				existing.setRate(d.getRate());
+			}
+		}
+	}
+
+	static List<Drop> parseDropLines(String wikitext)
+	{
 		Map<String, Drop> byName = new HashMap<>();
-		Matcher m = DROPS_LINE.matcher(selectDropVersion(wikitext));
+		Matcher m = DROPS_LINE.matcher(wikitext);
 		while (m.find())
 		{
 			// Members-locked ({{(m)}}) and conditional drops (only while on a
@@ -422,17 +583,19 @@ public class WikiDropsService
 	}
 
 	/**
-	 * Some pages split drops into dropversion variants. Which versions matter
-	 * differs per page: on Rat, ~56 variant declarations use "Regular" and 2
-	 * use "Stronghold of Security" (a fringe variant whose Bones line must not
-	 * leak onto regular rats), while on Goblin both "Drop table 1" and
-	 * "Drop table 2" are used by many overworld variants and must merge.
-	 * Every dropversion= declaration (infobox variants and table heads) is a
-	 * vote; versions polling under 20% of the most-common one are fringe and
-	 * their tables are excluded. Unversioned pages are scanned whole.
+	 * Fallback version selection for mobs with no variant seen yet. Which
+	 * versions matter differs per page: on Rat, ~56 variant declarations use
+	 * "Regular" and 2 use "Stronghold of Security" (a fringe variant whose
+	 * Bones line must not leak onto regular rats), while on Goblin both drop
+	 * tables are used by many variants. Every dropversion= declaration is a
+	 * vote; versions polling under 20% of the most-common one are fringe.
+	 * Once the player actually sees a variant, the infobox id mapping
+	 * overrides this fallback entirely.
 	 */
-	static String selectDropVersion(String wikitext)
+	private static List<String> voteMajorVersions(String wikitext, WikiMobData data)
 	{
+		Set<String> tableLabels = new HashSet<>(data.getTablesByVersion().keySet());
+		tableLabels.remove("");
 		Map<String, Integer> votes = new HashMap<>();
 		Matcher vm = DROP_VERSION.matcher(wikitext);
 		while (vm.find())
@@ -449,48 +612,23 @@ public class WikiDropsService
 		}
 		if (votes.size() < 2)
 		{
-			return wikitext;
+			return new ArrayList<>(tableLabels);
 		}
 		int max = 0;
 		for (int v : votes.values())
 		{
 			max = Math.max(max, v);
 		}
-		Set<String> included = new HashSet<>();
-		for (Map.Entry<String, Integer> e : votes.entrySet())
+		List<String> majors = new ArrayList<>();
+		for (String label : tableLabels)
 		{
-			if (e.getValue() * 5 >= max)
+			Integer v = votes.get(label);
+			if (v == null || v * 5 >= max)
 			{
-				included.add(e.getKey());
+				majors.add(label);
 			}
 		}
-		if (included.size() == votes.size())
-		{
-			return wikitext;
-		}
-		StringBuilder kept = new StringBuilder();
-		Matcher block = DROPS_TABLE_BLOCK.matcher(wikitext);
-		while (block.find())
-		{
-			Matcher v = DROP_VERSION.matcher(block.group(1));
-			boolean keep = true;
-			if (v.find())
-			{
-				keep = false;
-				for (String label : v.group(1).split(","))
-				{
-					if (included.contains(normalize(label)))
-					{
-						keep = true;
-					}
-				}
-			}
-			if (keep)
-			{
-				kept.append(block.group(2)).append('\n');
-			}
-		}
-		return kept.toString();
+		return majors;
 	}
 
 	private static boolean hasConditionalRef(String dropsLineBody)
@@ -603,7 +741,7 @@ public class WikiDropsService
 		return new File(CACHE_DIR, key.replaceAll("[^a-z0-9_-]", "_") + ".json");
 	}
 
-	private List<Drop> loadFromDisk(String key)
+	private WikiMobData loadFromDisk(String key)
 	{
 		File f = diskFile(key);
 		if (!f.exists())
@@ -613,10 +751,21 @@ public class WikiDropsService
 		try
 		{
 			String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-			Type type = new TypeToken<List<Drop>>()
+			if (json.trim().startsWith("["))
 			{
-			}.getType();
-			return gson.fromJson(json, type);
+				// Legacy flat-list cache — usable as a version-less baseline
+				Type type = new TypeToken<List<Drop>>()
+				{
+				}.getType();
+				List<Drop> legacy = gson.fromJson(json, type);
+				WikiMobData data = new WikiMobData();
+				if (legacy != null && !legacy.isEmpty())
+				{
+					data.getTablesByVersion().put("", legacy);
+				}
+				return data;
+			}
+			return gson.fromJson(json, WikiMobData.class);
 		}
 		catch (Exception e)
 		{
@@ -625,12 +774,12 @@ public class WikiDropsService
 		}
 	}
 
-	private void saveToDisk(String key, List<Drop> drops)
+	private void saveToDisk(String key, WikiMobData data)
 	{
 		try
 		{
 			CACHE_DIR.mkdirs();
-			Files.write(diskFile(key).toPath(), gson.toJson(drops).getBytes(StandardCharsets.UTF_8));
+			Files.write(diskFile(key).toPath(), gson.toJson(data).getBytes(StandardCharsets.UTF_8));
 		}
 		catch (IOException e)
 		{

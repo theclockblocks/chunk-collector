@@ -178,6 +178,33 @@ public class WikiDropsParseTest
 	}
 
 	@Test
+	public void mapsNpcIdsToDropVersions()
+	{
+		// Goblin-style page: infobox maps ids to versions; a Lumbridge goblin
+		// (id 3028, table 1) must not see table 2's spear
+		WikiMobData data = WikiDropsService.parseMobData(
+			"{{Infobox Monster\n|id1 = 3028,3029\n|dropversion1 = Drop table 1\n"
+				+ "|id2 = 5192\n|dropversion2 = Drop table 2\n}}\n"
+				+ "{{DropsTableHead|dropversion=Drop table 1}}\n"
+				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
+				+ "{{DropsTableBottom}}\n"
+				+ "{{DropsTableHead|dropversion=Drop table 2}}\n"
+				+ "{{DropsLine|name=Bones|quantity=1|rarity=Always}}\n"
+				+ "{{DropsLine|name=Bronze spear|quantity=1|rarity=1/25}}\n"
+				+ "{{DropsTableBottom}}");
+
+		java.util.Set<String> t1 = new java.util.HashSet<>(
+			java.util.Collections.singleton("drop table 1"));
+		assertEquals(t1, WikiDropsService.parseMobDataVersions(data, 3028));
+		assertEquals(1, data.flatten(t1).size());
+
+		java.util.Set<String> t2 = new java.util.HashSet<>(
+			java.util.Collections.singleton("drop table 2"));
+		assertEquals(t2, WikiDropsService.parseMobDataVersions(data, 5192));
+		assertEquals(2, data.flatten(t2).size());
+	}
+
+	@Test
 	public void keepsHighestRateForDuplicates()
 	{
 		List<Drop> drops = WikiDropsService.parseWikitext(
