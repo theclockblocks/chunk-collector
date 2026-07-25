@@ -9,8 +9,10 @@ expand is to *complete the drop tables of the mobs that live in your zones*.
 1. **Fresh start.** Spawn in Lumbridge; only your starting zone (64×64 map region
    by default, 8×8 chunks for hardcore) is unlocked.
 2. **Sighting builds the log.** Combat NPCs you see in unlocked zones register
-   Pokédex-style — their full drop table (from the OSRS Wiki) becomes part of that
-   zone's collection log.
+   Pokédex-style — their drop table (from the OSRS Wiki, narrowed to the variants
+   you've actually encountered) becomes part of that zone's collection log.
+   Skilling stays vanilla: logs and fish are guaranteed outputs, not drops, so
+   they're not collection entries.
 3. **Drops score points.** Each drop-table item has a point value by rarity
    (Common 1, Uncommon 3, Rare 8, Epic 20, Legendary 50 — all configurable). The
    first time you receive an item as a drop in an unlocked zone, it's collected.

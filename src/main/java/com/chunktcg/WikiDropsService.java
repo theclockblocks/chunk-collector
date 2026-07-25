@@ -80,9 +80,6 @@ public class WikiDropsService
 	@Inject
 	private Gson gson;
 
-	@Inject
-	private NodeTables nodeTables;
-
 	/**
 	 * Returns the cached drop table: null means unknown (not fetched yet),
 	 * an empty list means the NPC is known to have no drops. Uses the
@@ -97,12 +94,6 @@ public class WikiDropsService
 	/** The mob's table narrowed to the given seen dropversions (null = majors). */
 	public List<Drop> getForVersions(String npcName, Set<String> seenVersions)
 	{
-		// Skilling nodes have curated tables — no wiki involved
-		List<Drop> nodeTable = nodeTables.tableOf(npcName);
-		if (nodeTable != null)
-		{
-			return nodeTable;
-		}
 		WikiMobData data = dataFor(npcName);
 		return data == null ? null : data.flatten(seenVersions);
 	}
@@ -149,11 +140,6 @@ public class WikiDropsService
 	 */
 	public void ensureFetched(String npcName, Runnable onUpdate)
 	{
-		if (nodeTables.isNode(npcName))
-		{
-			onUpdate.run();
-			return;
-		}
 		String key = normalize(npcName);
 		if (cache.containsKey(key))
 		{
