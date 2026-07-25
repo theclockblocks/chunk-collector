@@ -272,8 +272,20 @@ public class TcgStateService
 				for (Map.Entry<String, Set<String>> e : saved.entrySet())
 				{
 					Set<String> copy = ConcurrentHashMap.newKeySet();
-					copy.addAll(e.getValue());
-					seenVersions.put(e.getKey(), copy);
+					for (String label : e.getValue())
+					{
+						// Self-heal: region-gated versions recorded before the
+						// gate existed are dropped — they re-record properly
+						// when sighted in an allowed region
+						if (!drops.isVersionRegionGated(e.getKey(), label))
+						{
+							copy.add(label);
+						}
+					}
+					if (!copy.isEmpty())
+					{
+						seenVersions.put(e.getKey(), copy);
+					}
 				}
 			}
 		}

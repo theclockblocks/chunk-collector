@@ -305,7 +305,7 @@ public class ChunkTcgPlugin extends Plugin
 		}
 		// Record which wiki variant this id belongs to (Goblin table 1 vs 2)
 		final int npcId = npc.getId();
-		if (state.recordSeenVersions(name, drops.versionsFor(name, npcId)))
+		if (state.recordSeenVersions(name, versionsSeen(name, npcId, zone)))
 		{
 			refreshPanel();
 		}
@@ -314,7 +314,7 @@ public class ChunkTcgPlugin extends Plugin
 			drops.ensureFetched(name, () ->
 			{
 				// Table data may only now be available — map the id to its variant
-				state.recordSeenVersions(name, drops.versionsFor(name, npcId));
+				state.recordSeenVersions(name, versionsSeen(name, npcId, zone));
 				List<Drop> table = state.effectiveTable(name);
 				if (table != null && !table.isEmpty())
 				{
@@ -363,7 +363,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		state.discoverNpc(chunk, name);
-		state.recordSeenVersions(name, drops.versionsFor(name, npc.getId()));
+		state.recordSeenVersions(name, versionsSeen(name, npc.getId(), chunk));
 		state.addKill(name);
 		refreshPanel();
 	}
@@ -404,12 +404,12 @@ public class ChunkTcgPlugin extends Plugin
 		}
 
 		state.discoverNpc(chunk, name);
-		state.recordSeenVersions(name, drops.versionsFor(name, npc.getId()));
 		final int npcId = npc.getId();
+		state.recordSeenVersions(name, versionsSeen(name, npcId, chunk));
 		drops.ensureFetched(name, () ->
 		{
 			// Map the id to its variant now that the page data exists
-			state.recordSeenVersions(name, drops.versionsFor(name, npcId));
+			state.recordSeenVersions(name, versionsSeen(name, npcId, chunk));
 			processPendingLoot();
 			refreshPanel();
 		});
@@ -603,6 +603,13 @@ public class ChunkTcgPlugin extends Plugin
 		state.resetRun();
 		seedAndPrefetch();
 		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
+	}
+
+	/** The wiki versions this id maps to, minus any region-gated by overrides. */
+	private java.util.Set<String> versionsSeen(String name, int npcId, int zoneId)
+	{
+		return drops.filterVersionsForRegion(name,
+			drops.versionsFor(name, npcId), zones.rsRegionOfZone(zoneId));
 	}
 
 	private static boolean isOnTable(List<Drop> table, String itemName)

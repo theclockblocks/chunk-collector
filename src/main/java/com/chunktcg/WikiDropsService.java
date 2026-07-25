@@ -105,6 +105,81 @@ public class WikiDropsService
 		return data == null ? java.util.Collections.emptySet() : parseMobDataVersions(data, npcId);
 	}
 
+	/**
+	 * The wiki's id-to-version mapping is sometimes coarser than reality —
+	 * e.g. Lumbridge's level-5 goblins share an infobox id list with cave
+	 * goblins that use Drop table 2, but never roll it. Curated overrides
+	 * (version-overrides.json) restrict such versions to the RS regions where
+	 * they actually apply; a sighting elsewhere doesn't record them.
+	 */
+	public Set<String> filterVersionsForRegion(String npcName, Set<String> labels, int rsRegionId)
+	{
+		if (labels.isEmpty())
+		{
+			return labels;
+		}
+		Map<String, Set<Integer>> mobOverrides = versionOverrides().get(normalize(npcName));
+		if (mobOverrides == null)
+		{
+			return labels;
+		}
+		Set<String> out = new HashSet<>();
+		for (String label : labels)
+		{
+			Set<Integer> allowedRegions = mobOverrides.get(normalize(label));
+			if (allowedRegions == null || allowedRegions.contains(rsRegionId))
+			{
+				out.add(label);
+			}
+		}
+		return out;
+	}
+
+	/** True if this mob+version is region-gated by an override. */
+	public boolean isVersionRegionGated(String npcName, String label)
+	{
+		Map<String, Set<Integer>> mobOverrides = versionOverrides().get(normalize(npcName));
+		return mobOverrides != null && mobOverrides.containsKey(normalize(label));
+	}
+
+	private volatile Map<String, Map<String, Set<Integer>>> overrides;
+
+	private Map<String, Map<String, Set<Integer>>> versionOverrides()
+	{
+		if (overrides == null)
+		{
+			synchronized (this)
+			{
+				if (overrides == null)
+				{
+					Map<String, Map<String, Set<Integer>>> loaded = new HashMap<>();
+					try (java.io.InputStream in =
+						WikiDropsService.class.getResourceAsStream("/version-overrides.json"))
+					{
+						if (in != null)
+						{
+							Type t = new TypeToken<Map<String, Map<String, Set<Integer>>>>()
+							{
+							}.getType();
+							Map<String, Map<String, Set<Integer>>> raw = gson.fromJson(
+								new java.io.InputStreamReader(in, StandardCharsets.UTF_8), t);
+							if (raw != null)
+							{
+								loaded = raw;
+							}
+						}
+					}
+					catch (Exception e)
+					{
+						log.debug("Failed loading version overrides", e);
+					}
+					overrides = loaded;
+				}
+			}
+		}
+		return overrides;
+	}
+
 	static Set<String> parseMobDataVersions(WikiMobData data, int npcId)
 	{
 		List<String> labels = data.getVersionsById().get(String.valueOf(npcId));

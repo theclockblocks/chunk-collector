@@ -125,4 +125,10 @@ public class ZoneGrid
 	{
 		return (ChunkCoord.cx(id) << 8) | ChunkCoord.cy(id);
 	}
+
+	/** RS map-region containing the zone's south-west tile — valid in any zone mode. */
+	public int rsRegionOfZone(int id)
+	{
+		return ((baseX(id) >> 6) << 8) | (baseY(id) >> 6);
+	}
 }
