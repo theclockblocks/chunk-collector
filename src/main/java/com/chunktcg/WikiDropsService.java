@@ -309,6 +309,7 @@ public class WikiDropsService
 		}
 		JsonObject parse = root.getAsJsonObject("parse");
 		WikiMobData data = parseMobData(parse.getAsJsonObject("wikitext").get("*").getAsString());
+		data.setFmt(WikiMobData.CURRENT_FMT);
 		if (parse.has("title"))
 		{
 			data.setCanonicalName(parse.get("title").getAsString());
@@ -842,19 +843,16 @@ public class WikiDropsService
 			String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
 			if (json.trim().startsWith("["))
 			{
-				// Legacy flat-list cache — usable as a version-less baseline
-				Type type = new TypeToken<List<Drop>>()
-				{
-				}.getType();
-				List<Drop> legacy = gson.fromJson(json, type);
-				WikiMobData data = new WikiMobData();
-				if (legacy != null && !legacy.isEmpty())
-				{
-					data.getTablesByVersion().put("", legacy);
-				}
-				return data;
+				// Pre-versioning flat-list cache — refetch
+				return null;
 			}
-			return gson.fromJson(json, WikiMobData.class);
+			WikiMobData data = gson.fromJson(json, WikiMobData.class);
+			if (data == null || data.getFmt() < WikiMobData.CURRENT_FMT)
+			{
+				// Stale cache format (e.g. missing canonical name) — refetch
+				return null;
+			}
+			return data;
 		}
 		catch (Exception e)
 		{

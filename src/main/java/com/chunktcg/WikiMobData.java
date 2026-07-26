@@ -18,6 +18,11 @@ import lombok.Data;
 @Data
 public class WikiMobData
 {
+	/** Cache format version; older on-disk caches are refetched. */
+	public static final int CURRENT_FMT = 2;
+
+	private int fmt;
+
 	/**
 	 * The resolved wiki page title — canonical mob identity. "Bull" redirects
 	 * to "Brutus": one mob, one log entry, whichever name the client shows.
