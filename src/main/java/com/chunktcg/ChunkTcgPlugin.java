@@ -95,6 +95,14 @@ public class ChunkTcgPlugin extends Plugin
 	private int lastChunk = -1;
 	private int lastWarnedChunk = -1;
 
+	/**
+	 * The last overworld zone the player stood in. Instances and off-map
+	 * areas (the Groats' Farm bull pen, caves, minigame arenas) inherit this
+	 * zone: fights there are allowed if it's unlocked, and their mobs join
+	 * its collection log.
+	 */
+	private int lastGroundedZone = -1;
+
 	private static class PendingLoot
 	{
 		final int zone;
@@ -169,6 +177,7 @@ public class ChunkTcgPlugin extends Plugin
 			state.unload();
 			lastChunk = -1;
 			lastWarnedChunk = -1;
+			lastGroundedZone = -1;
 			refreshPanel();
 		}
 	}
@@ -239,6 +248,13 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 
+		WorldView wv = client.getTopLevelWorldView();
+		boolean inInstance = wv != null && wv.isInstance();
+		if (!inInstance && !isOffMap(pos))
+		{
+			lastGroundedZone = zones.fromWorld(pos);
+		}
+
 		int chunk = zones.fromWorld(pos);
 		if (chunk == lastChunk)
 		{
@@ -246,16 +262,15 @@ public class ChunkTcgPlugin extends Plugin
 		}
 		lastChunk = chunk;
 
-		WorldView wv = client.getTopLevelWorldView();
-		boolean inInstance = wv != null && wv.isInstance();
-		if (!inInstance && !state.isUnlocked(chunk) && config.warnOnEnterLocked() && chunk != lastWarnedChunk)
+		if (!inInstance && !isOffMap(pos) && !state.isUnlocked(chunk)
+			&& config.warnOnEnterLocked() && chunk != lastWarnedChunk)
 		{
 			lastWarnedChunk = chunk;
 			message("You are in a locked zone " + zones.describe(chunk)
 				+ " — kills here won't count and are violations.");
 		}
 		// Sweep for mobs that wandered into (or spawned in) unlocked zones
-		if (wv != null && !inInstance)
+		if (wv != null)
 		{
 			for (NPC npc : wv.npcs())
 			{
@@ -265,6 +280,26 @@ public class ChunkTcgPlugin extends Plugin
 		refreshPanel();
 	}
 
+	/** Instance space and non-surface areas (caves, arenas) are off the map. */
+	private static boolean isOffMap(WorldPoint p)
+	{
+		return p.getX() >= 6400 || p.getY() >= 4160;
+	}
+
+	/**
+	 * The zone an actor at this location belongs to: its own zone on the
+	 * surface, or the inherited last-stood overworld zone in instances and
+	 * off-map areas (-1 when unknown).
+	 */
+	private int effectiveZoneOf(WorldPoint loc, boolean inInstance)
+	{
+		if (inInstance || isOffMap(loc))
+		{
+			return lastGroundedZone;
+		}
+		return zones.fromWorld(loc);
+	}
+
 	/**
 	 * Sighting: a combat NPC appearing in an unlocked zone registers its drop
 	 * table as part of that zone's collection log.
@@ -272,11 +307,6 @@ public class ChunkTcgPlugin extends Plugin
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned event)
 	{
-		WorldView wv = client.getTopLevelWorldView();
-		if (wv == null || wv.isInstance())
-		{
-			return;
-		}
 		sightNpc(event.getNpc());
 	}
 
@@ -298,14 +328,16 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		int zone = zones.fromWorld(loc);
-		if (!state.isUnlocked(zone))
+		WorldView wv = client.getTopLevelWorldView();
+		boolean inInstance = wv != null && wv.isInstance();
+		final int zone = effectiveZoneOf(loc, inInstance);
+		if (zone == -1 || !state.isUnlocked(zone))
 		{
 			return;
 		}
 		// Record which wiki variant this id belongs to (Goblin table 1 vs 2)
 		final int npcId = npc.getId();
-		if (state.recordSeenVersions(name, versionsSeen(name, npcId, zone)))
+		if (state.recordSeenVersions(name, versionsSeen(name, npcId, loc)))
 		{
 			refreshPanel();
 		}
@@ -314,7 +346,7 @@ public class ChunkTcgPlugin extends Plugin
 			drops.ensureFetched(name, () ->
 			{
 				// Table data may only now be available — map the id to its variant
-				state.recordSeenVersions(name, versionsSeen(name, npcId, zone));
+				state.recordSeenVersions(name, versionsSeen(name, npcId, loc));
 				List<Drop> table = state.effectiveTable(name);
 				if (table != null && !table.isEmpty())
 				{
@@ -340,7 +372,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		WorldView wv = client.getTopLevelWorldView();
-		if (wv == null || wv.isInstance() || client.getLocalPlayer() == null)
+		if (wv == null || client.getLocalPlayer() == null)
 		{
 			return;
 		}
@@ -357,13 +389,13 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		int chunk = zones.fromWorld(loc);
-		if (!state.isUnlocked(chunk))
+		int chunk = effectiveZoneOf(loc, wv.isInstance());
+		if (chunk == -1 || !state.isUnlocked(chunk))
 		{
 			return;
 		}
 		state.discoverNpc(chunk, name);
-		state.recordSeenVersions(name, versionsSeen(name, npc.getId(), chunk));
+		state.recordSeenVersions(name, versionsSeen(name, npc.getId(), loc));
 		state.addKill(name);
 		refreshPanel();
 	}
@@ -376,10 +408,6 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		WorldView wv = client.getTopLevelWorldView();
-		if (wv != null && wv.isInstance())
-		{
-			return;
-		}
 
 		NPC npc = event.getNpc();
 		String name = npc.getName();
@@ -392,7 +420,11 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		int chunk = zones.fromWorld(loc);
+		int chunk = effectiveZoneOf(loc, wv != null && wv.isInstance());
+		if (chunk == -1)
+		{
+			return;
+		}
 
 		if (!state.isUnlocked(chunk))
 		{
@@ -405,11 +437,11 @@ public class ChunkTcgPlugin extends Plugin
 
 		state.discoverNpc(chunk, name);
 		final int npcId = npc.getId();
-		state.recordSeenVersions(name, versionsSeen(name, npcId, chunk));
+		state.recordSeenVersions(name, versionsSeen(name, npcId, loc));
 		drops.ensureFetched(name, () ->
 		{
 			// Map the id to its variant now that the page data exists
-			state.recordSeenVersions(name, versionsSeen(name, npcId, chunk));
+			state.recordSeenVersions(name, versionsSeen(name, npcId, loc));
 			processPendingLoot();
 			refreshPanel();
 		});
@@ -463,7 +495,7 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		WorldView wv = client.getTopLevelWorldView();
-		if (wv == null || wv.isInstance())
+		if (wv == null)
 		{
 			return;
 		}
@@ -479,14 +511,17 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			target = WorldPoint.fromScene(wv, event.getParam0(), event.getParam1(), wv.getPlane());
 		}
-		if (target != null && !state.isUnlocked(zones.fromWorld(target)))
+		if (target == null)
 		{
-			event.consume();
-			message("Blocked — that's in locked zone " + zones.describe(zones.fromWorld(target))
-				+ ". Earn a token and unlock it first!");
 			return;
 		}
-
+		int targetZone = effectiveZoneOf(target, wv.isInstance());
+		if (targetZone != -1 && !state.isUnlocked(targetZone))
+		{
+			event.consume();
+			message("Blocked — that's in locked zone " + zones.describe(targetZone)
+				+ ". Earn a token and unlock it first!");
+		}
 	}
 
 	/** Hide locked-zone NPC menu options entirely (Examine stays). */
@@ -542,7 +577,13 @@ public class ChunkTcgPlugin extends Plugin
 			return false;
 		}
 		WorldPoint loc = npc.getWorldLocation();
-		return loc != null && !state.isUnlocked(zones.fromWorld(loc));
+		if (loc == null)
+		{
+			return false;
+		}
+		WorldView wv = client.getTopLevelWorldView();
+		int zone = effectiveZoneOf(loc, wv != null && wv.isInstance());
+		return zone != -1 && !state.isUnlocked(zone);
 	}
 
 	private static boolean isNpcAction(MenuAction action)
@@ -605,11 +646,16 @@ public class ChunkTcgPlugin extends Plugin
 		clientThread.invoke(() -> message("Run reset! Zones, collection, tokens and locked threshold wiped."));
 	}
 
-	/** The wiki versions this id maps to, minus any region-gated by overrides. */
-	private java.util.Set<String> versionsSeen(String name, int npcId, int zoneId)
+	/**
+	 * The wiki versions this id maps to, minus any region-gated by overrides.
+	 * The gate uses the NPC's actual map region (valid underground too);
+	 * instance-space coords yield a garbage region, so gated versions simply
+	 * never record inside instances — conservative and correct.
+	 */
+	private java.util.Set<String> versionsSeen(String name, int npcId, WorldPoint loc)
 	{
-		return drops.filterVersionsForRegion(name,
-			drops.versionsFor(name, npcId), zones.rsRegionOfZone(zoneId));
+		int rsRegion = ((loc.getX() >> 6) << 8) | (loc.getY() >> 6);
+		return drops.filterVersionsForRegion(name, drops.versionsFor(name, npcId), rsRegion);
 	}
 
 	private static boolean isOnTable(List<Drop> table, String itemName)
