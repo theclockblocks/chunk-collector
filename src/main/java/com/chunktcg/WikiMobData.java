@@ -18,6 +18,12 @@ import lombok.Data;
 @Data
 public class WikiMobData
 {
+	/**
+	 * The resolved wiki page title — canonical mob identity. "Bull" redirects
+	 * to "Brutus": one mob, one log entry, whichever name the client shows.
+	 */
+	private String canonicalName;
+
 	/** dropversion label (normalized, "" = unversioned baseline) -> drops. */
 	private Map<String, List<Drop>> tablesByVersion = new HashMap<>();
 

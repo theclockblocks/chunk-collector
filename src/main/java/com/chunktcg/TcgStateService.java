@@ -3,6 +3,7 @@ package com.chunktcg;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -591,6 +592,79 @@ public class TcgStateService
 	{
 		Integer kc = killCounts.get(WikiDropsService.normalize(mobName));
 		return kc == null ? 0 : kc;
+	}
+
+	/**
+	 * Merge one mob identity into another (wiki redirect aliases: "Bull" is
+	 * "Brutus"). Moves discovery entries, collection, kc and seen versions.
+	 */
+	public boolean mergeMobAlias(String fromName, String toName)
+	{
+		String from = WikiDropsService.normalize(fromName);
+		String to = WikiDropsService.normalize(toName);
+		if (from.equals(to))
+		{
+			return false;
+		}
+		boolean changed = false;
+		for (Set<String> mobs : discovered.values())
+		{
+			String found = null;
+			for (String n : mobs)
+			{
+				if (WikiDropsService.normalize(n).equals(from))
+				{
+					found = n;
+					break;
+				}
+			}
+			if (found != null)
+			{
+				mobs.remove(found);
+				mobs.add(toName);
+				changed = true;
+			}
+		}
+		for (String key : new ArrayList<>(collected.keySet()))
+		{
+			if (key.startsWith(from + "|"))
+			{
+				CardEntry entry = collected.remove(key);
+				changed = true;
+				String newKey = to + key.substring(from.length());
+				CardEntry existing = collected.get(newKey);
+				if (existing == null)
+				{
+					collected.put(newKey, entry);
+				}
+				else
+				{
+					existing.setCount(existing.getCount() + entry.getCount());
+					if (existing.getItemId() < 0 && entry.getItemId() >= 0)
+					{
+						existing.setItemId(entry.getItemId());
+					}
+				}
+			}
+		}
+		Integer kc = killCounts.remove(from);
+		if (kc != null)
+		{
+			killCounts.merge(to, kc, Integer::sum);
+			changed = true;
+		}
+		Set<String> seen = seenVersions.remove(from);
+		if (seen != null)
+		{
+			seenVersions.computeIfAbsent(to, k -> ConcurrentHashMap.newKeySet()).addAll(seen);
+			changed = true;
+		}
+		if (changed)
+		{
+			save();
+			log.debug("Merged mob alias {} -> {}", fromName, toName);
+		}
+		return changed;
 	}
 
 	/**

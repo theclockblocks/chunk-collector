@@ -274,6 +274,17 @@ public class WikiDropsService
 					WikiMobData data = parseMobDataResponse(body);
 					cache.put(key, data);
 					saveToDisk(key, data);
+					// Redirected fetches also cache under the canonical name so
+					// canonical-keyed lookups (post alias-merge) hit immediately
+					if (data.getCanonicalName() != null)
+					{
+						String canonKey = normalize(data.getCanonicalName());
+						if (!canonKey.equals(key))
+						{
+							cache.put(canonKey, data);
+							saveToDisk(canonKey, data);
+						}
+					}
 					pending.remove(key);
 					log.debug("Fetched {} drops ({} versions) for {}",
 						data.flatten(null).size(), data.getTablesByVersion().size(), npcName);
@@ -296,10 +307,27 @@ public class WikiDropsService
 		{
 			return new WikiMobData();
 		}
-		String wikitext = root.getAsJsonObject("parse")
-			.getAsJsonObject("wikitext")
-			.get("*").getAsString();
-		return parseMobData(wikitext);
+		JsonObject parse = root.getAsJsonObject("parse");
+		WikiMobData data = parseMobData(parse.getAsJsonObject("wikitext").get("*").getAsString());
+		if (parse.has("title"))
+		{
+			data.setCanonicalName(parse.get("title").getAsString());
+		}
+		return data;
+	}
+
+	/**
+	 * The mob's canonical identity: the resolved wiki page title when known
+	 * ("Bull" redirects to "Brutus" — same mob, same log entry).
+	 */
+	public String canonicalName(String npcName)
+	{
+		WikiMobData data = dataFor(npcName);
+		if (data != null && data.getCanonicalName() != null && !data.getCanonicalName().isEmpty())
+		{
+			return data.getCanonicalName();
+		}
+		return npcName;
 	}
 
 	/** Test/back-compat view: baseline plus major versions, flattened. */

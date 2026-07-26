@@ -322,12 +322,13 @@ public class ChunkTcgPlugin extends Plugin
 		{
 			return;
 		}
-		String name = npc.getName();
+		String rawName = npc.getName();
 		WorldPoint loc = npc.getWorldLocation();
-		if (name == null || name.isEmpty() || loc == null)
+		if (rawName == null || rawName.isEmpty() || loc == null)
 		{
 			return;
 		}
+		final String name = drops.canonicalName(rawName);
 		WorldView wv = client.getTopLevelWorldView();
 		boolean inInstance = wv != null && wv.isInstance();
 		final int zone = effectiveZoneOf(loc, inInstance);
@@ -377,12 +378,13 @@ public class ChunkTcgPlugin extends Plugin
 			return;
 		}
 		NPC npc = (NPC) event.getActor();
-		String name = npc.getName();
+		String rawName = npc.getName();
 		WorldPoint loc = npc.getWorldLocation();
-		if (name == null || name.isEmpty() || loc == null)
+		if (rawName == null || rawName.isEmpty() || loc == null)
 		{
 			return;
 		}
+		String name = drops.canonicalName(rawName);
 		Actor npcTarget = npc.getInteracting();
 		Actor playerTarget = client.getLocalPlayer().getInteracting();
 		if (npcTarget != client.getLocalPlayer() && playerTarget != npc)
@@ -410,11 +412,12 @@ public class ChunkTcgPlugin extends Plugin
 		WorldView wv = client.getTopLevelWorldView();
 
 		NPC npc = event.getNpc();
-		String name = npc.getName();
-		if (name == null || name.isEmpty())
+		String rawName = npc.getName();
+		if (rawName == null || rawName.isEmpty())
 		{
 			return;
 		}
+		final String name = drops.canonicalName(rawName);
 		WorldPoint loc = npc.getWorldLocation();
 		if (loc == null)
 		{
@@ -629,9 +632,35 @@ public class ChunkTcgPlugin extends Plugin
 	{
 		for (String npc : state.allDiscoveredNpcs())
 		{
-			drops.ensureFetched(npc, this::refreshPanel);
+			drops.ensureFetched(npc, () ->
+			{
+				mergeKnownAliases();
+				refreshPanel();
+			});
 		}
+		mergeKnownAliases();
 		syncRegionLocker();
+	}
+
+	/**
+	 * Collapse discovered mobs whose wiki pages redirect to another name
+	 * ("Bull" -> "Brutus") into a single log entry. Idempotent and cheap.
+	 */
+	private void mergeKnownAliases()
+	{
+		boolean changed = false;
+		for (String mob : state.allDiscoveredNpcs())
+		{
+			String canonical = drops.canonicalName(mob);
+			if (!WikiDropsService.normalize(canonical).equals(WikiDropsService.normalize(mob)))
+			{
+				changed |= state.mergeMobAlias(mob, canonical);
+			}
+		}
+		if (changed)
+		{
+			refreshPanel();
+		}
 	}
 
 	/** Reset triggered from the panel's confirmed dialog (EDT). */
